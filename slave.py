@@ -13,6 +13,6 @@ def main():
     xb = yield xbee.XBee(reactor, '/dev/ttyO0', 115200)
     
     while True:
-        xb.transmit('hello' + str(time.time()))
-        yield deferral.sleep(1)
+        packet, = yield xb.packet_received.get_deferred()
+        xb.transmit(packet['data'][::-1])
 deferral.launch_main(main)
