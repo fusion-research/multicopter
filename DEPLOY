@@ -1,0 +1,6 @@
+#!/bin/bash -xe
+
+ssh flyer screen -X -S quad quit || true
+ssh flyer rm -fr /tmp/quad
+scp -r "$(pwd)" flyer:/tmp/quad
+#ssh flyer screen -S quad -d -m bash -c '"cd /tmp/quad;sudo python slave.py"'
