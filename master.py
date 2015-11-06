@@ -13,17 +13,21 @@ import xbee
 def main():
     xb = yield xbee.XBee(reactor, '/dev/ttyUSB0', 115200)
     
-    in_flight = {}
-    
-    def cb(packet):
-        print time.time() - in_flight.pop(packet['data'][::-1])
-    xb.packet_received.watch(cb)
-    
     while True:
         k = str(random.randrange(2**8))
         
         xb.transmit(k)
-        in_flight[k] = time.time()
+        send_time = time.time()
         
-        yield deferral.sleep(.1)
+        try:
+            packet, = yield deferral.wrap_timeout(xb.packet_received.get_deferred(), .2)
+        except deferral.TimeoutError:
+            print 'dropped'
+            continue
+        
+        recv_time = time.time()
+        
+        assert packet['data'] == k[::-1]
+        
+        print recv_time - send_time
 deferral.launch_main(main)
