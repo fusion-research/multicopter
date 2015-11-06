@@ -19,7 +19,21 @@ class XBee(object):
         
         buf = []
         self._protocol = Protocol()
-        self._protocol.dataReceived = buf.extend
+        self._protocol.dataReceived = lambda data: buf.extend(data)
+        
+        cmds = [
+            'ATID9FF',
+            'ATHP6',
+            'ATKY0',
+            'ATRR0',
+            'ATMT0',
+            'ATAP1',
+            'ATMYFFFF',
+            'ATDTFFFF',
+            #'ATMK0', # sniffing
+            # RB/PK?
+            'ATCN',
+        ]
         
         self._port = serialport.SerialPort(self._protocol, port, reactor, initial_baud_rate)
         self._port.flushInput()
@@ -27,19 +41,10 @@ class XBee(object):
         print repr(''.join(buf)); buf = []
         self._port.write('+++')
         yield deferral.sleep(1.1)
-        print repr(''.join(buf)); buf = []
-        self._port.write('ATAP1\r')
-        yield deferral.sleep(.1)
-        print repr(''.join(buf)); buf = []
-        self._port.write('ATRR0\r')
-        yield deferral.sleep(.1)
-        print repr(''.join(buf)); buf = []
-        self._port.write('ATMT0\r')
-        yield deferral.sleep(.1)
-        print repr(''.join(buf)); buf = []
-        self._port.write('ATCN\r')
-        yield deferral.sleep(.1)
-        print repr(''.join(buf)); buf = []
+        for cmd in cmds:
+            print repr(''.join(buf)); buf = []
+            self._port.write(cmd + '\r')
+            yield deferral.sleep(.1)
         
         self.packet_received = variable.Event()
         self._protocol.dataReceived = datachunker.DataChunker(self.dataReceiver())

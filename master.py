@@ -11,10 +11,12 @@ import xbee
 
 @defer.inlineCallbacks
 def main():
-    xb = yield xbee.XBee(reactor, '/dev/ttyUSB0', 115200)
+    xb = yield xbee.XBee(reactor, '/dev/ttyUSB0', 230400)
     
     while True:
-        k = str(random.randrange(2**8))
+        LENGTH = 1
+        k = str(random.randrange(10**LENGTH)).zfill(LENGTH)
+        assert len(k) == LENGTH
         
         xb.transmit(k)
         send_time = time.time()

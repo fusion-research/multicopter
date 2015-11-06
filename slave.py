@@ -10,7 +10,7 @@ import xbee
 
 @defer.inlineCallbacks
 def main():
-    xb = yield xbee.XBee(reactor, '/dev/ttyO0', 115200)
+    xb = yield xbee.XBee(reactor, '/dev/ttyO0', 230400)
     
     while True:
         packet, = yield xb.packet_received.get_deferred()
