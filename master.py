@@ -1,28 +1,31 @@
+from __future__ import division
 
-import os
-import struct
+import evdev
 
-fd = os.open('/dev/input/by-id/usb-Logitech_Inc._WingMan_Extreme_Digital_3D-event-joystick', os.O_RDONLY)
-
-abs_codes = {0: 'x', 1: 'y', 5: 'Z', 6: 'throttle', 16: 'hat_x', 17: 'hat_y'}
-key_codes = {0x120: 'trigger', 0x121: 'left_up', 0x122: 'left_down', 0x123: 'right_up', 0x124: 'right_down', 0x125: 'O6', 0x126: 'O7'}
+dev = evdev.device.InputDevice('/dev/input/by-id/usb-Logitech_Inc._WingMan_Extreme_Digital_3D-event-joystick')
 
 abs_states = {}
 key_states = {}
+for type_, value in dev.capabilities().iteritems():
+    if type_ == evdev.ecodes.EV_KEY:
+        for code in value:
+            key_states[code] = 0
+    elif type_ == evdev.ecodes.EV_ABS:
+        for code, absinfo in value:
+            abs_states[code] = absinfo
+for code, value in dev.active_keys():
+    key_states[code] = value
 
-while True:
-    FORMAT = 'llHHi'
-    EVENT_SIZE = struct.calcsize(FORMAT)
-    tv_sec, tv_usec, type_, code, value = struct.unpack(FORMAT, os.read(fd, EVENT_SIZE))
-    if type_ == 0 and code == 0 and value == 0:
+for event in dev.read_loop():
+    if event.type == evdev.ecodes.EV_SYN and event.code == evdev.ecodes.SYN_REPORT and event.value == 0:
         continue
-    elif type_ == 3 and code in abs_codes:
-        abs_states[abs_codes[code]] = value
-    elif type_ == 4 and code == 4:
-        continue # EV_MSC - only happens for buttons, but they get EV_KEY, which is more useful
-    elif type_ == 1 and code in key_codes:
-        key_states[key_codes[code]] = value
+    elif event.type == evdev.ecodes.EV_ABS:
+        abs_states[event.code] = abs_states[event.code]._replace(value=event.value)
+    elif event.type == evdev.ecodes.EV_MSC and event.code == evdev.ecodes.MSC_SCAN:
+        continue # only happens for buttons, but they get EV_KEY, which is more useful
+    elif event.type == evdev.ecodes.EV_KEY:
+        key_states[event.code] = event.value
     else:
-        print 'unknown event:', map(hex, (type_, code, value))
-        assert False
+        print 'unknown event:', map(hex, (event.type, event.code, event.value))
+    
     print abs_states, key_states
