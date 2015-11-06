@@ -66,12 +66,21 @@ class XBee(object):
         self._port.write('ATAP2\r')
         yield deferral.sleep(.1)
         print repr(''.join(buf)); buf = []
+        self._port.write('ATRR0\r')
+        yield deferral.sleep(.1)
+        print repr(''.join(buf)); buf = []
+        self._port.write('ATMT0\r')
+        yield deferral.sleep(.1)
+        print repr(''.join(buf)); buf = []
         self._port.write('ATCN\r')
         yield deferral.sleep(.1)
         print repr(''.join(buf)); buf = []
         
         self._reader = ReadeyThing()
-        self._protocol.dataReceived = self._reader.dataReceived
+        def x(data):
+            print len(data), data.encode('hex')
+            self._reader.dataReceived(data)
+        self._protocol.dataReceived = x
         
         self.packet_received = variable.Event()
         
@@ -83,6 +92,7 @@ class XBee(object):
     def _data_reader(self):
         while True:
             x = yield self._reader.read(1)
+            start = time.time()
             if x != '\x7e':
                 print 'garbage', x.encode('hex')
                 continue
@@ -114,6 +124,7 @@ class XBee(object):
                     print 'short xbee packet:', (cmdID, cmdData)
                     continue
                 source_address, rssi, options = struct.unpack('>HBB', cmdData[:4])
+                print 'decode took', time.time() - start
                 self.packet_received.happened(dict(source_address=source_address, rssi=rssi, options=options, data=cmdData[4:]))
     
     @defer.inlineCallbacks
@@ -135,4 +146,6 @@ class XBee(object):
         self._port.write(''.join(res))
     
     def transmit(self, data):
+        start = time.time()
         self._send_packet('0100ffff00'.decode('hex') + data)
+        print 'transmit took', time.time() - start

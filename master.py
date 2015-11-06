@@ -20,10 +20,10 @@ def main():
     xb.packet_received.watch(cb)
     
     while True:
-        k = str(random.randrange(2**256))
+        k = str(random.randrange(2**8))
         
         xb.transmit(k)
         in_flight[k] = time.time()
         
-        yield deferral.sleep(1)
+        yield deferral.sleep(.1)
 deferral.launch_main(main)
