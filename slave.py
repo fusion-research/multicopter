@@ -14,5 +14,5 @@ def main():
     
     while True:
         packet, = yield xb.packet_received.get_deferred()
-        xb.transmit(packet['data'][::-1])
+        print packet['data']
 deferral.launch_main(main)
