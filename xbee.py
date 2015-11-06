@@ -49,7 +49,6 @@ class XBee(object):
     def dataReceiver(self):
         while True:
             x = yield 1
-            start = time.time()
             if x != '\x7e':
                 print 'garbage', x.encode('hex')
                 continue
@@ -81,13 +80,10 @@ class XBee(object):
                     print 'short xbee packet:', (cmdID, cmdData)
                     continue
                 source_address, rssi, options = struct.unpack('>HBB', cmdData[:4])
-                print 'decode took', time.time() - start
                 self.packet_received.happened(dict(source_address=source_address, rssi=rssi, options=options, data=cmdData[4:]))
     
     def _send_packet(self, frame_data):
         self._port.write(struct.pack('>BH', 0x7e, len(frame_data)) + frame_data + chr(_calculate_checksum(frame_data)))
     
     def transmit(self, data):
-        start = time.time()
         self._send_packet('0100ffff00'.decode('hex') + data)
-        print 'transmit took', time.time() - start
