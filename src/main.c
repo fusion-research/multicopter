@@ -36,6 +36,10 @@
 #define BpFET_off CAT(P1_B, BpFET) = 0
 #define CpFET_off CAT(P1_B, CpFET) = 0
 
+#define Set_Comp_Phase_A CPT0MX = 0x11
+#define Set_Comp_Phase_B CPT0MX = 0x13
+#define Set_Comp_Phase_C CPT0MX = 0x10
+
 void switch_power_off() {
     AnFET_off;
     CnFET_off;
@@ -102,6 +106,9 @@ void main() {
     SCON0_RI = 0;
     
     P0MDOUT = (1 << Tx_Out);
+    
+    CPT0CN = 0x80; // Comparator enabled, no hysteresis
+    CPT0MD = 0x00; // Comparator response time 100ns
     
     while(true) {
         uint8_t count = (uint16_t)40000/speed;
