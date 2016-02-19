@@ -70,14 +70,6 @@ void main() {
     
     OSCICN |= 0x03; // set clock divider to 1
     
-    if(!(OSCLCN & 1)) {
-        if(OSCICL + 4 < 128) {
-            OSCICL = OSCICL + 4;
-            
-            OSCLCN |= 1;
-        }
-    }
-    
     P0 = 0xFF;
     P0MDOUT = 0;
     P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
@@ -88,8 +80,8 @@ void main() {
     P1MDIN = ~(1 << Adc_Ip);
     P1SKIP = (1 << Adc_Ip);
     
-    XBR0 = 0x01;
-    XBR1 = 0x40;
+    XBR0 = 0x01; // enable uart
+    XBR1 = 0x40; // enable crossbar
     
     switch_power_off();
     
@@ -151,7 +143,7 @@ void main() {
     TMOD = 0x20;
     CKCON = 0x08;
     TL1 = 0;
-    TH1 = 0x98;
+    TH1 = 0x96;
     TCON = 0x40;
     SCON0 = 0x00;
     
