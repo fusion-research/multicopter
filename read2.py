@@ -11,8 +11,8 @@ s = serial.Serial('/dev/ttyUSB0', 115200)
 
 s.write('g')
 
+while ord(s.read(1)) != 42: pass
+
 while True:
-    r = ord(s.read(1))
-    if r != 42: continue
-    speed = struct.unpack('>H', s.read(2))
-    print speed
+    x = struct.unpack('>6B', s.read(6))
+    print ' '.join('{0:08b}'.format(y) for y in x)

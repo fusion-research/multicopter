@@ -64,12 +64,10 @@ delayloop2:
 _endasm;
 }
 
-uint8_t on_time = 100;
-uint8_t off_time_long = 3;
+uint8_t on_time = 200;
+uint8_t off_time_long = 6;
 
 void main() {
-    uint16_t speed = 400;
-    
     PCA0MD &= ~0x40; // disable watchdog
     
     OSCICN |= 0x03; // set clock divider to 1
@@ -110,67 +108,89 @@ void main() {
     CPT0CN = 0x80; // Comparator enabled, no hysteresis
     CPT0MD = 0x00; // Comparator response time 100ns
     
+    SBUF0 = 42;
+    
     while(true) {
-        uint8_t count = (uint16_t)40000/speed;
+        uint8_t count = 9;
         uint8_t f;
+        uint8_t cmps;
+        cmps = 0;
+        Set_Comp_Phase_C;
         for(f = 0; f < count; f++) {
             ApFET_on;
             BnFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             ApFET_off;
             BnFET_off;
             longdelay(off_time_long);
         }
+        SBUF0 = cmps;
+        cmps = 0;
+        Set_Comp_Phase_A;
         for(f = 0; f < count; f++) {
             BnFET_on;
             CpFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             BnFET_off;
             CpFET_off;
             longdelay(off_time_long);
         }
+        SBUF0 = cmps;
+        cmps = 0;
+        Set_Comp_Phase_B;
         for(f = 0; f < count; f++) {
             AnFET_on;
             CpFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             AnFET_off;
             CpFET_off;
             longdelay(off_time_long);
         }
+        SBUF0 = cmps;
+        cmps = 0;
+        Set_Comp_Phase_C;
         for(f = 0; f < count; f++) {
             AnFET_on;
             BpFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             AnFET_off;
             BpFET_off;
             longdelay(off_time_long);
         }
+        SBUF0 = cmps;
+        cmps = 0;
+        Set_Comp_Phase_A;
         for(f = 0; f < count; f++) {
             BpFET_on;
             CnFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             BpFET_off;
             CnFET_off;
             longdelay(off_time_long);
         }
+        SBUF0 = cmps;
+        cmps = 0;
+        Set_Comp_Phase_B;
         for(f = 0; f < count; f++) {
             ApFET_on;
             CnFET_on;
             delay(on_time);
+            cmps <<= 1;
+            if(CPT0CN & 0x40) cmps |= 1;
             ApFET_off;
             CnFET_off;
             longdelay(off_time_long);
         }
-        if(speed <= 5000) speed += (count+3)/4;
-        
-        SBUF0 = 42;
-        while(!SCON0_TI);
-        SCON0_TI = 0;
-        SBUF0 = speed >> 8;
-        while(!SCON0_TI);
-        SCON0_TI = 0;
-        SBUF0 = speed & 255;
-        while(!SCON0_TI);
-        SCON0_TI = 0;
+        SBUF0 = cmps;
     }
 }
