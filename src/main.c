@@ -54,12 +54,18 @@ _endasm;
 void longdelay(uint8_t ticks) {
 _asm
     clr acc
-    delayloop2: djnz acc, delayloop2
+delayloop2:
+    djnz acc, delayloop2
     djnz dpl, delayloop2
 _endasm;
 }
 
+uint8_t on_time = 100;
+uint8_t off_time_long = 3;
+
 void main() {
+    uint16_t speed = 100;
+    
     PCA0MD &= ~0x40; // disable watchdog
     
     OSCICN |= 0x03; // set clock divider to 1
@@ -88,22 +94,57 @@ void main() {
     switch_power_off();
     
     while(true) {
+        uint8_t count = (uint16_t)10000/speed;
         uint8_t f;
-        for(f = 1; f < 255; f++) {
-            AnFET_on;
-            BpFET_on;
-            delay(f);
-            AnFET_off;
-            BpFET_off;
-            
+        for(f = 0; f < count; f++) {
             ApFET_on;
             BnFET_on;
-            delay(f);
+            delay(on_time);
             ApFET_off;
             BnFET_off;
-            
-            longdelay(f);
+            longdelay(off_time_long);
         }
+        for(f = 0; f < count; f++) {
+            BnFET_on;
+            CpFET_on;
+            delay(on_time);
+            BnFET_off;
+            CpFET_off;
+            longdelay(off_time_long);
+        }
+        for(f = 0; f < count; f++) {
+            AnFET_on;
+            CpFET_on;
+            delay(on_time);
+            AnFET_off;
+            CpFET_off;
+            longdelay(off_time_long);
+        }
+        for(f = 0; f < count; f++) {
+            AnFET_on;
+            BpFET_on;
+            delay(on_time);
+            AnFET_off;
+            BpFET_off;
+            longdelay(off_time_long);
+        }
+        for(f = 0; f < count; f++) {
+            BpFET_on;
+            CnFET_on;
+            delay(on_time);
+            BpFET_off;
+            CnFET_off;
+            longdelay(off_time_long);
+        }
+        for(f = 0; f < count; f++) {
+            ApFET_on;
+            CnFET_on;
+            delay(on_time);
+            ApFET_off;
+            CnFET_off;
+            longdelay(off_time_long);
+        }
+        if(speed <= 30000) speed++;
     }
     
     TCON = 0x00;
