@@ -71,7 +71,7 @@ void main() {
     OSCICN |= 0x03; // set clock divider to 1
     
     P0 = 0xFF;
-    P0MDOUT = (1 << Tx_Out);
+    P0MDOUT = 0;//(1 << Tx_Out);
     P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
     P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
     
@@ -93,6 +93,15 @@ void main() {
     SCON0 = 0x00;
     
     switch_power_off();
+    
+    // wait for byte
+    SCON0_RI = 0;
+    SCON0_REN = 1;
+    while(!SCON0_RI);
+    SCON0_REN = 0;
+    SCON0_RI = 0;
+    
+    P0MDOUT = (1 << Tx_Out);
     
     while(true) {
         uint8_t count = (uint16_t)40000/speed;
