@@ -64,7 +64,7 @@ uint8_t on_time = 100;
 uint8_t off_time_long = 3;
 
 void main() {
-    uint16_t speed = 100;
+    uint16_t speed = 400;
     
     PCA0MD &= ~0x40; // disable watchdog
     
@@ -94,7 +94,7 @@ void main() {
     switch_power_off();
     
     while(true) {
-        uint8_t count = (uint16_t)10000/speed;
+        uint8_t count = (uint16_t)40000/speed;
         uint8_t f;
         for(f = 0; f < count; f++) {
             ApFET_on;
@@ -144,7 +144,7 @@ void main() {
             CnFET_off;
             longdelay(off_time_long);
         }
-        if(speed <= 30000) speed++;
+        if(speed <= 5000) speed += (count+3)/4;
     }
     
     TCON = 0x00;
