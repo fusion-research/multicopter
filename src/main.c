@@ -64,8 +64,8 @@ delayloop2:
 _endasm;
 }
 
-uint8_t on_time = 200;
-uint8_t off_time_long = 6;
+uint8_t on_time = 150;
+uint8_t off_time_long = 3;
 
 void main() {
     PCA0MD &= ~0x40; // disable watchdog
@@ -117,7 +117,7 @@ void main() {
         uint8_t cmps;
         cmps = 0;
         Set_Comp_Phase_C;
-        count = 100; set_count = 0;
+        count = 200; set_count = 0;
         for(f = 0; f < count; f++) {
             uint8_t res;
             ApFET_on;
