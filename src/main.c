@@ -71,7 +71,7 @@ void main() {
     OSCICN |= 0x03; // set clock divider to 1
     
     P0 = 0xFF;
-    P0MDOUT = 0;
+    P0MDOUT = (1 << Tx_Out);
     P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
     P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
     
@@ -82,6 +82,15 @@ void main() {
     
     XBR0 = 0x01; // enable uart
     XBR1 = 0x40; // enable crossbar
+    
+    // configure uart
+    TCON = 0x00;
+    TMOD = 0x20;
+    CKCON = 0x08;
+    TL1 = 0;
+    TH1 = 0x96;
+    TCON = 0x40;
+    SCON0 = 0x00;
     
     switch_power_off();
     
@@ -137,37 +146,14 @@ void main() {
             longdelay(off_time_long);
         }
         if(speed <= 5000) speed += (count+3)/4;
-    }
-    
-    TCON = 0x00;
-    TMOD = 0x20;
-    CKCON = 0x08;
-    TL1 = 0;
-    TH1 = 0x96;
-    TCON = 0x40;
-    SCON0 = 0x00;
-    
-    while(true) {
-        uint8_t b;
         
-        SCON0_TI = 0;
-        SBUF0 = 170;
+        SBUF0 = 42;
         while(!SCON0_TI);
         SCON0_TI = 0;
-        continue;
-        
-        
-        SCON0_RI = 0;
-        SCON0_REN = 1;
-        while(!SCON0_RI);
-        b = SBUF0;
-        SCON0_REN = 0;
-        SCON0_RI = 0;
-        
-        b++;
-        
+        SBUF0 = speed >> 8;
+        while(!SCON0_TI);
         SCON0_TI = 0;
-        SBUF0 = b;
+        SBUF0 = speed & 255;
         while(!SCON0_TI);
         SCON0_TI = 0;
     }
