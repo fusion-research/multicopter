@@ -103,8 +103,6 @@ void main() {
     SCON0_REN = 0;
     SCON0_RI = 0;
     
-    P0MDOUT = (1 << Tx_Out);
-    
     CPT0CN = 0x80; // Comparator enabled, no hysteresis
     CPT0MD = 0x00; // Comparator response time 100ns
     
