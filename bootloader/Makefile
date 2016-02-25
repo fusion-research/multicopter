@@ -1,6 +1,6 @@
 all: build/fw.hex
 
-CC = sdcc -mmcs51 --stack-auto --code-size 0x400 --xram-size 0x0200 --xram-loc 0x0000 -Isrc -Iinc
+CC = sdcc -mmcs51 --code-size 0x400 --xram-size 0 --xram-loc 0x0000 -Isrc -Iinc
 AS = sdas8051 -logs
 
 CSRC = $(wildcard src/*.c)

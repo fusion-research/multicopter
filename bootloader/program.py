@@ -11,15 +11,14 @@ import serial
 s = serial.Serial('/dev/ttyUSB0', 115200)
 
 def write_packet(payload):
-    assert len(payload) <= 20
-    payload = payload + chr(0) * (20 - len(payload))
+    assert len(payload) == 20
     d = 'd830037d'.decode('hex')
     d += payload
     d += struct.pack('>I', binascii.crc32(d) & 0xffffffff)
     s.write(d)
     #print 'send', d.encode('hex')
 
-def read_packet():
+def read_packet(length):
     class GotResult(Exception):
         def __init__(self, res):
             self.res = res
@@ -29,7 +28,7 @@ def read_packet():
         if (yield) != '\xf1': return
         if (yield) != '\xcb': return
         d = ['\xe4\x8c\xf1\xcb']
-        for i in xrange(512 + 4): d.append((yield))
+        for i in xrange(length + 4): d.append((yield))
         d = ''.join(d)
         if d[-4:] != struct.pack('>I', binascii.crc32(d[:-4]) & 0xffffffff):
             print 'data', d.encode('hex'), len(d)
@@ -55,10 +54,34 @@ def read_packet():
             readers = new_readers
 
 def read_page(page_number):
-    write_packet(struct.pack('BB', 0, page_number))
-    return read_packet()
+    write_packet(struct.pack('>BB18x', 0, page_number))
+    return read_packet(512)
+def write(addr, data):
+    assert len(data) <= 16
+    p = struct.pack('>BBH16s', 1, len(data), addr, data)
+    write_packet(p)
+    if read_packet(len(p)) != p: raise ValueError()
+def erase_page(page_number):
+    assert 2 <= page_number <= 14
+    p = struct.pack('>BB18x', 2, page_number)
+    write_packet(p)
+    if read_packet(len(p)) != p: raise ValueError()
+def run_program():
+    p = struct.pack('>B19x', 3)
+    write_packet(p)
+    if read_packet(len(p)) != p: raise ValueError()
 
 s.read(s.inWaiting())
 
-for p in xrange(15):
-    print read_page(p).encode('hex')
+d = ''
+for p in xrange(15): d += read_page(p)
+print d.encode('hex')
+print 'erasing'
+erase_page(8)
+print 'writing'
+write(0x1000, ''.join(map(chr, xrange(16)))[::-1])
+print 'done'
+d = ''
+for p in xrange(15): d += read_page(p)
+print d.encode('hex')
+print d[0x1000-3:0x1000+20].encode('hex')

@@ -62,19 +62,9 @@ void send_and_crc(uint8_t byte) {
 }
 
 void main() {
-    PCA0MD &= ~0x40; // disable watchdog
+    PCA0MD = 0x00; // disable watchdog
     
-    OSCICN |= 0x03; // set clock divider to 1
-    
-    P0 = 0xFF;
-    P0MDOUT = 0;
-    P0MDIN = 0xFF;
-    P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
-    
-    P1 = 0xFF;
-    P1MDOUT = 0x00;
-    P1MDIN = 0xFF;
-    P1SKIP = 0xFF;
+    OSCICN = 0xc3; // set clock divider to 1
     
     XBR0 = 0x01; // enable uart
     XBR1 = 0x40; // enable crossbar
@@ -83,7 +73,6 @@ void main() {
     TCON = 0x00;
     TMOD = 0x20;
     CKCON = 0x08;
-    TL1 = 0;
     TH1 = 0x96;
     TCON = 0x40;
     SCON0 = 0x00;
@@ -91,6 +80,7 @@ void main() {
     
     while(true) {
         uint8_t c, buf[20], i;
+        while(!SCON0_TI); // wait for any transmissions to finish
         SCON0_RI = 0;
         SCON0_REN = 1;
 got_nothing:
@@ -126,7 +116,7 @@ got_first:
         
         SCON0_REN = 0;
         
-        if(c == buf[0]) {
+        if(buf[0] == 0) {
             uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)buf[1]) << 9);
             crc_init();
             send_and_crc(0xe4);
@@ -140,12 +130,50 @@ got_first:
                 }
             }
             crc_finalize();
-            {
-                send_byte(crc.as_4_uint8[3]);
-                send_byte(crc.as_4_uint8[2]);
-                send_byte(crc.as_4_uint8[1]);
-                send_byte(crc.as_4_uint8[0]);
+            for(i = 3; i <= 3; i--) {
+                send_byte(crc.as_4_uint8[i]);
             }
+            continue;
+        } else if(buf[0] == 1) { // write
+            uint8_t length = buf[1];
+            uint16_t addr = ((((uint16_t)buf[2]) << 8) | buf[3]);
+            if(length > 16) continue;
+            if(addr < 0x200 || addr >= 0x2000 || addr + length > 0x1E00) continue;
+            for(i = 0; i < length; i++) {
+                PSCTL = 0x01; // PSWE = 1, PSEE = 0
+                FLKEY = 0xA5;
+                FLKEY = 0xF1;
+                *(uint8_t __xdata *)addr = buf[4+i];
+                PSCTL = 0x00; // PSWE = 0
+                addr++;
+            }
+        } else if(buf[0] == 2) { // erase
+            if(buf[1] < 2 || buf[1] >= 15) continue;
+            PSCTL = 0x03; // PSWE = 1, PSEE = 1
+            FLKEY = 0xA5;
+            FLKEY = 0xF1;
+            *(uint8_t __xdata *)(((uint16_t)buf[1]) << 9) = 0;
+            PSCTL = 0x00;
+        } else if(buf[0] == 3) { // run program
+        } else {
+            continue;
+        }
+        
+        crc_init();
+        send_and_crc(0xe4);
+        send_and_crc(0x8c);
+        send_and_crc(0xf1);
+        send_and_crc(0xcb);
+        for(i = 0; i < sizeof(buf); i++) {
+            send_and_crc(buf[i]);
+        }
+        crc_finalize();
+        for(i = 3; i <= 3; i--) {
+            send_byte(crc.as_4_uint8[i]);
+        }
+        
+        if(buf[0] == 3) { // run program
+            ext_reset();
         }
     }
 }
