@@ -138,6 +138,7 @@ void main() {
         uint8_t set_count;
         uint8_t count;
         uint8_t f;
+        if(on_time == 1) continue;
         Set_Comp_Phase_C;
         count = 255; set_count = 0;
         for(f = 0; f < count; f++) {
