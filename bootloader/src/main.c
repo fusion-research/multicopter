@@ -173,6 +173,7 @@ got_first:
         }
         
         if(buf[0] == 3) { // run program
+            while(!SCON0_TI); // wait for any transmissions to finish
             ext_reset();
         }
     }
