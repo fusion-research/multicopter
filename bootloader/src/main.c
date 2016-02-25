@@ -119,12 +119,11 @@ got_first:
             buf[i] = c;
             crc_update(c);
         }
+        crc_finalize();
+        for(i = 3; i <= 3; i--) {
+            if(read_byte() != crc.as_4_uint8[i]) goto got_nothing;
+        }
         
-        read_byte(); read_byte(); read_byte(); read_byte();
-        /*if(read_byte() != crc.as_4_uint8[3]) goto got_nothing;
-        if(read_byte() != crc.as_4_uint8[2]) goto got_nothing;
-        if(read_byte() != crc.as_4_uint8[1]) goto got_nothing;
-        if(read_byte() != crc.as_4_uint8[0]) goto got_nothing;*/
         SCON0_REN = 0;
         
         if(c == buf[0]) {

@@ -17,9 +17,12 @@ def write_packet(payload):
     d += payload
     d += struct.pack('>I', binascii.crc32(d) & 0xffffffff)
     s.write(d)
-    print 'send', d.encode('hex')
+    #print 'send', d.encode('hex')
 
 def read_packet():
+    class GotResult(Exception):
+        def __init__(self, res):
+            self.res = res
     def _reader():
         if (yield) != '\xe4': return
         if (yield) != '\x8c': return
@@ -45,10 +48,17 @@ def read_packet():
                     r.send(c)
                 except StopIteration:
                     pass
+                except GotResult as e:
+                    return e.res
                 else:
                     new_readers.append(r)
             readers = new_readers
 
+def read_page(page_number):
+    write_packet(struct.pack('BB', 0, page_number))
+    return read_packet()
+
 s.read(s.inWaiting())
-write_packet('\x00\x02') # read page 2
-print read_packet().encode('hex')
+
+for p in xrange(15):
+    print read_page(p).encode('hex')
