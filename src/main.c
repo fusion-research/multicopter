@@ -79,7 +79,7 @@ _endasm;
 }
 
 
-volatile uint8_t on_time = 1;
+volatile uint8_t on_time = 100;
 uint8_t off_time_long = 3;
 volatile uint8_t revs = 0;
 
@@ -113,13 +113,13 @@ void uart0_isr() __interrupt UART0_IRQn {
             case 3: if(c == 0x3c) rx_state = 4; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
             case 4:
                 if(c == 0) {
-                    __critical {
+                    /*__critical {
                         send_byte(0xa4);
                         send_byte(0x76);
                         send_byte(0x6a);
                         send_byte(0x7f);
                         send_byte(revs);
-                    }
+                    }*/
                 } else if(c == 255) {
                     RSTSRC = 0x10; // reset into bootloader
                     while(1);
@@ -178,13 +178,18 @@ void main() {
     IE_ES0 = 1;
     enable_interrupts();
     
+    //while(true);
+    
     while(true) {
-        uint8_t set_count;
         uint8_t count;
         uint8_t f;
         if(on_time == 1) continue;
+                        //send_byte(0xa4);
+                        //send_byte(0x76);
+                        //send_byte(0x6a);
+                        //send_byte(0x7f);
         Set_Comp_Phase_C;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             ApFET_on;
@@ -193,11 +198,12 @@ void main() {
             res = CPT0CN;
             ApFET_off;
             BnFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if((res & 0x40)) { break; }
         }
+        //send_byte(f);
         Set_Comp_Phase_A;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             BnFET_on;
@@ -206,11 +212,12 @@ void main() {
             res = CPT0CN;
             BnFET_off;
             CpFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if(!(res & 0x40)) { break; }
         }
+        //send_byte(f);
         Set_Comp_Phase_B;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             AnFET_on;
@@ -219,11 +226,12 @@ void main() {
             res = CPT0CN;
             AnFET_off;
             CpFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if((res & 0x40)) { break; }
         }
+        //send_byte(f);
         Set_Comp_Phase_C;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             AnFET_on;
@@ -232,11 +240,12 @@ void main() {
             res = CPT0CN;
             AnFET_off;
             BpFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if(!(res & 0x40)) { break; }
         }
+        //send_byte(f);
         Set_Comp_Phase_A;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             BpFET_on;
@@ -245,11 +254,12 @@ void main() {
             res = CPT0CN;
             BpFET_off;
             CnFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if((res & 0x40)) { break; }
         }
+        //send_byte(f);
         Set_Comp_Phase_B;
-        count = 255; set_count = 0;
+        count = 255;
         for(f = 0; f < count; f++) {
             uint8_t res;
             ApFET_on;
@@ -258,9 +268,10 @@ void main() {
             res = CPT0CN;
             ApFET_off;
             CnFET_off;
-            if(!(res & 0x40) && !set_count) { count = 0; set_count = 1; }
             longdelay(off_time_long);
+            if(!(res & 0x40)) { break; }
         }
+        //send_byte(f);
         
         revs++;
     }
