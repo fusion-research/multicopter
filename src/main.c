@@ -2,6 +2,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "crc.h"
+
 // port 0
 #define Mux_B 6
 #define Rcp_In 5
@@ -81,19 +83,61 @@ volatile uint8_t on_time = 1;
 uint8_t off_time_long = 3;
 volatile uint8_t revs = 0;
 
+uint8_t rx_state = 0;
+
+volatile __xdata uint8_t tx_buf[256];
+volatile uint8_t tx_buf_write_pos = 0;
+volatile uint8_t tx_buf_read_pos = 0;
+
+volatile bit sending = 0;
+
+void send_byte(uint8_t x) {
+    if(tx_buf_write_pos + 1 == tx_buf_read_pos) return; // buffer full
+    
+    tx_buf[tx_buf_write_pos++] = x;
+    
+    if(!sending && tx_buf_read_pos != tx_buf_write_pos) {
+        SBUF0 = tx_buf[tx_buf_read_pos++];
+        sending = 1;
+    }
+}
+
 void uart0_isr() __interrupt UART0_IRQn {
     if(SCON0_RI) {
-        if((SBUF0 & 0x80) == 0) {
-            if(SBUF0 == 0) {
-                SBUF0 = (revs & 0x7F) | 0x80;
-            } else {
-                on_time = SBUF0 << 1;
-            }
-        }
+        uint8_t c = SBUF0;
         SCON0_RI = 0;
+        switch(rx_state) {
+            case 0: if(c == 0x37) rx_state = 1; break;
+            case 1: if(c == 0x19) rx_state = 2; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
+            case 2: if(c == 0x15) rx_state = 3; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
+            case 3: if(c == 0x3c) rx_state = 4; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
+            case 4:
+                if(c == 0) {
+                    __critical {
+                        send_byte(0xa4);
+                        send_byte(0x76);
+                        send_byte(0x6a);
+                        send_byte(0x7f);
+                        send_byte(revs);
+                    }
+                } else if(c == 255) {
+                    RSTSRC = 0x10; // reset into bootloader
+                    while(1);
+                } else {
+                    on_time = c;
+                }
+                
+                rx_state = 0;
+                break;
+        }
     }
     if(SCON0_TI) {
+        sending = 0;
         SCON0_TI = 0;
+        if(!sending && tx_buf_read_pos != tx_buf_write_pos) {
+            SBUF0 = tx_buf[tx_buf_read_pos++];
+            sending = 1;
+        }
     }
 }
 

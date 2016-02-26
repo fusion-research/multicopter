@@ -9,7 +9,7 @@ import serial
 
 class Bootloader(object):
     def __init__(self):
-        self._s = serial.Serial('/dev/ttyUSB0', 115200)
+        self._s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
         self._s.read(self._s.inWaiting())
 
     def _write_packet(self, payload):
@@ -40,6 +40,7 @@ class Bootloader(object):
         readers = []
         while True:
             d = self._s.read(max(1, self._s.inWaiting()))
+            assert d
             for c in d:
                 readers.append(_reader())
                 readers[-1].send(None)

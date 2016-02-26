@@ -10,6 +10,9 @@ import bootloader
 b = bootloader.Bootloader()
 ih = intelhex.IntelHex(sys.argv[1])
 
+for i in xrange(10):
+    b._s.write('3719153cff'.decode('hex')) # tell user code to reset into bootloader
+
 PAGE_SIZE = 512
 
 d = {a: ih[a] for a in ih.addresses()}
