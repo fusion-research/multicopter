@@ -39,19 +39,24 @@ def read_packet(length):
                     new_readers.append(r)
             readers = new_readers
 
-for i in xrange(150, 255):
+for i in xrange(50, 100):
     print i
     s.write('3719153c'.decode('hex') + chr(i))
-    time.sleep(.03)
+    time.sleep(.05)
+import math
+import itertools
+for i in itertools.count():
+    power = 175+75*math.sin(i*.05 * 10)
+    print power
+    s.write('3719153c'.decode('hex') + chr(int(round(power))))
+    time.sleep(.05)
 
 last_revs = None
 last_t = None
 while True:
     t = time.time()
-    #s.write('3719153c'.decode('hex') + chr(0))
-    revs = read_packet(6)
-    print revs.encode('hex')
-    continue
+    s.write('3719153c'.decode('hex') + chr(0))
+    revs = ord(read_packet(1))
     if last_revs is not None:
         delta_revs = (revs - last_revs) % 256
         delta_t = t - last_t
