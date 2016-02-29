@@ -8,12 +8,13 @@ import struct
 import serial
 
 class Bootloader(object):
-    def __init__(self):
+    def __init__(self, id_):
+        self._id = id_
         self._s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
         self._s.read(self._s.inWaiting())
 
     def _write_packet(self, payload):
-        assert len(payload) == 20
+        assert len(payload) == 21
         d = 'd830037d'.decode('hex')
         d += payload
         d += struct.pack('>I', binascii.crc32(d) & 0xffffffff)
@@ -57,19 +58,19 @@ class Bootloader(object):
                 readers = new_readers
 
     def read_page(self, page_number):
-        self._write_packet(struct.pack('>BB18x', 0, page_number))
+        self._write_packet(struct.pack('>BB18xB', 0, page_number, self._id))
         return self._read_packet(512)
     def write(self, addr, data):
         assert len(data) <= 16
-        p = struct.pack('>BBH16s', 1, len(data), addr, data)
+        p = struct.pack('>BBH16sB', 1, len(data), addr, data, self._id)
         self._write_packet(p)
         if self._read_packet(len(p)) != p: raise ValueError()
     def erase_page(self, page_number):
         assert 2 <= page_number <= 14
-        p = struct.pack('>BB18x', 2, page_number)
+        p = struct.pack('>BB18xB', 2, page_number, self._id)
         self._write_packet(p)
         if self._read_packet(len(p)) != p: raise ValueError()
     def run_program(self):
-        p = struct.pack('>B19x', 3)
+        p = struct.pack('>B19xB', 3, self._id)
         self._write_packet(p)
         if self._read_packet(len(p)) != p: raise ValueError()

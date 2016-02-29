@@ -7,8 +7,8 @@ import intelhex
 import bootloader
 
 
-b = bootloader.Bootloader()
 ih = intelhex.IntelHex(sys.argv[1])
+b = bootloader.Bootloader(int(sys.argv[2]))
 
 for i in xrange(10):
     b._s.write('3719153cff'.decode('hex')) # tell user code to reset into bootloader

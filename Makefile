@@ -1,6 +1,6 @@
-all: build/fw.hex build/bootloader.hex
+all: build/fw.hex build/bootloader.hex build/bootloader_0.hex build/bootloader_1.hex
 
-CC = sdcc -mmcs51 --stack-auto --code-loc 0x400 --code-size 0x1a00 --xram-size 0x0200 --xram-loc 0x0000 -Isrc -Iinc
+CC = sdcc -mmcs51 --stack-auto --code-loc 0x400 --code-size 0x1800 --xram-size 0x0200 --xram-loc 0x0000 -Isrc -Iinc
 BL_CC = sdcc -mmcs51 --code-loc 0 --code-size 0x400 --xram-size 0 --xram-loc 0x0000 -Isrc -Iinc
 AS = sdas8051 -logs
 
@@ -39,3 +39,6 @@ build/bootloader.hex: $(BL_SRC:%=build/%.rel)
 
 clean:
 	rm -fr build
+
+build/bootloader_%.hex: build/bootloader.hex add_id.py
+	python add_id.py $< $* $@
