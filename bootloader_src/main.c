@@ -33,6 +33,14 @@ uint8_t read_byte() {
     return res;
 }
 
+void start_tx() {
+    P0MDOUT = (1 << Tx_Out);
+}
+void end_tx() {
+    while(!SCON0_TI);
+    P0MDOUT = 0;
+}
+
 void send_byte(uint8_t x) {
     while(!SCON0_TI);
     SCON0_TI = 0;
@@ -52,7 +60,7 @@ void main() {
     OSCICN = 0xc3; // set clock divider to 1
     
     XBR0 = 0x01; // enable uart
-    XBR1 = 0x40; // enable crossbar
+    XBR1 = 0xc0; // disable pullups, enable crossbar
     
     // configure uart
     TCON = 0x00;
@@ -106,6 +114,8 @@ got_first:
         if(buf[0] == 0) {
             uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)buf[1]) << 9);
             crc_init();
+            start_tx();
+            send_byte(0xff);
             send_and_crc(0xe4);
             send_and_crc(0x8c);
             send_and_crc(0xf1);
@@ -120,6 +130,7 @@ got_first:
             for(i = 3; i <= 3; i--) {
                 send_byte(crc.as_4_uint8[i]);
             }
+            end_tx();
             continue;
         } else if(buf[0] == 1) { // write
             uint8_t length = buf[1];
@@ -147,6 +158,8 @@ got_first:
         }
         
         crc_init();
+        start_tx();
+        send_byte(0xff);
         send_and_crc(0xe4);
         send_and_crc(0x8c);
         send_and_crc(0xf1);
@@ -158,9 +171,9 @@ got_first:
         for(i = 3; i <= 3; i--) {
             send_byte(crc.as_4_uint8[i]);
         }
+        end_tx();
         
         if(buf[0] == 3) { // run program
-            while(!SCON0_TI); // wait for any transmissions to finish
             ext_reset();
         }
     }

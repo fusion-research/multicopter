@@ -18,8 +18,9 @@ class Bootloader(object):
         d = 'd830037d'.decode('hex')
         d += payload
         d += struct.pack('>I', binascii.crc32(d) & 0xffffffff)
+        d = '\xff' + d
+        #print 'SEND', d.encode('hex')
         self._s.write(d)
-        #print 'send', d.encode('hex')
 
     def _read_packet(self, length):
         class GotResult(Exception):
@@ -41,6 +42,7 @@ class Bootloader(object):
         readers = []
         while True:
             d = self._s.read(max(1, self._s.inWaiting()))
+            #print 'RECV', d.encode('hex')
             assert d
             for c in d:
                 readers.append(_reader())
