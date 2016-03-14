@@ -33,14 +33,6 @@ uint8_t read_byte() {
     return res;
 }
 
-void start_tx() {
-    P0MDOUT = (1 << Tx_Out);
-}
-void end_tx() {
-    while(!SCON0_TI);
-    P0MDOUT = 0;
-}
-
 void send_byte(uint8_t x) {
     while(!SCON0_TI);
     SCON0_TI = 0;
@@ -50,6 +42,25 @@ void send_byte(uint8_t x) {
 void send_and_crc(uint8_t byte) {
     send_byte(byte);
     crc_update(byte);
+}
+
+void start_tx() {
+    crc_init();
+    P0MDOUT = (1 << Tx_Out);
+    send_byte(0xff);
+    send_and_crc(0xe4);
+    send_and_crc(0x8c);
+    send_and_crc(0xf1);
+    send_and_crc(0xcb);
+}
+void end_tx() {
+    uint8_t i;
+    crc_finalize();
+    for(i = 3; i <= 3; i--) {
+        send_byte(crc.as_4_uint8[i]);
+    }
+    while(!SCON0_TI);
+    P0MDOUT = 0;
 }
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
@@ -113,22 +124,12 @@ got_first:
         
         if(buf[0] == 0) {
             uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)buf[1]) << 9);
-            crc_init();
             start_tx();
-            send_byte(0xff);
-            send_and_crc(0xe4);
-            send_and_crc(0x8c);
-            send_and_crc(0xf1);
-            send_and_crc(0xcb);
             {
                 uint16_t i;
                 for(i = 0; i < 512; i++) {
                     send_and_crc(*ptr++);
                 }
-            }
-            crc_finalize();
-            for(i = 3; i <= 3; i--) {
-                send_byte(crc.as_4_uint8[i]);
             }
             end_tx();
             continue;
@@ -157,19 +158,9 @@ got_first:
             continue;
         }
         
-        crc_init();
         start_tx();
-        send_byte(0xff);
-        send_and_crc(0xe4);
-        send_and_crc(0x8c);
-        send_and_crc(0xf1);
-        send_and_crc(0xcb);
         for(i = 0; i < sizeof(buf); i++) {
             send_and_crc(buf[i]);
-        }
-        crc_finalize();
-        for(i = 3; i <= 3; i--) {
-            send_byte(crc.as_4_uint8[i]);
         }
         end_tx();
         
