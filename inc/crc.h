@@ -16,3 +16,6 @@ void crc_update(uint8_t byte) {
 void crc_finalize(void) {
     crc.as_uint32 = ~crc.as_uint32;
 }
+bit crc_good(void) {
+    return crc.as_4_uint8[0] == 28 && crc.as_4_uint8[1] == 223 && crc.as_4_uint8[2] == 68 && crc.as_4_uint8[3] == 33;
+}

@@ -8,9 +8,9 @@ import struct
 import serial
 
 class Bootloader(object):
-    def __init__(self, id_):
+    def __init__(self, s, id_):
         self._id = id_
-        self._s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+        self._s = s
         self._s.read(self._s.inWaiting())
 
     def _write_packet(self, payload):
@@ -68,7 +68,7 @@ class Bootloader(object):
         self._write_packet(p)
         if self._read_packet(len(p)) != p: raise ValueError()
     def erase_page(self, page_number):
-        assert 2 <= page_number <= 14
+        assert 2 <= page_number < 14
         p = struct.pack('>BB18xB', 2, page_number, self._id)
         self._write_packet(p)
         if self._read_packet(len(p)) != p: raise ValueError()

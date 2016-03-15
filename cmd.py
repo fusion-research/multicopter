@@ -2,42 +2,20 @@ from __future__ import division
 
 import struct
 import time
-import random
+import sys
 
 import serial
 
+import protocol
 
 s = serial.Serial('/dev/ttyUSB0', 115200)
+id_ = int(sys.argv[1])
 
-def read_packet(length):
-    class GotResult(Exception):
-        def __init__(self, res):
-            self.res = res
-    def _reader():
-        if (yield) != '\xa4': return
-        if (yield) != '\x76': return
-        if (yield) != '\x6a': return
-        if (yield) != '\x7f': return
-        d = []
-        for i in xrange(length): d.append((yield))
-        raise GotResult(''.join(d))
-    readers = []
-    while True:
-        d = s.read(max(1, s.inWaiting()))
-        for c in d:
-            readers.append(_reader())
-            readers[-1].send(None)
-            new_readers = []
-            for r in readers:
-                try:
-                    r.send(c)
-                except StopIteration:
-                    pass
-                except GotResult as e:
-                    return e.res
-                else:
-                    new_readers.append(r)
-            readers = new_readers
+p = protocol.Protocol(s)
+
+p.write_packet(struct.pack('>BBB', 2, id_, 93))
+for x in p.read_packet(): print x
+fasdfa
 
 for i in xrange(50, 100):
     print i

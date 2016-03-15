@@ -1,6 +1,7 @@
 #include "SI_C8051F330_Defs.h"
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "crc.h"
 
@@ -83,8 +84,6 @@ volatile uint8_t on_time = 1;
 uint8_t off_time_long = 3;
 volatile uint8_t revs = 0;
 
-uint8_t rx_state = 0;
-
 volatile __xdata uint8_t tx_buf[256];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
@@ -97,46 +96,108 @@ void send_byte(uint8_t x) {
     tx_buf[tx_buf_write_pos++] = x;
     
     if(!sending && tx_buf_read_pos != tx_buf_write_pos) {
+        P0MDOUT = (1 << Tx_Out);
         SBUF0 = tx_buf[tx_buf_read_pos++];
         sending = 1;
     }
 }
 
+#define ESCAPE        0x34
+#define ESCAPE_START  0x01
+#define ESCAPE_END    0x02
+#define ESCAPE_ESCAPE 0x03
+
+void send_escaped_byte(uint8_t x) {
+    if(x == ESCAPE) {
+        send_byte(ESCAPE);
+        send_byte(ESCAPE_ESCAPE);
+    } else {
+        send_byte(x);
+    }
+}
+
+volatile bit in_escape = 0, in_message = 0;
+volatile __xdata uint8_t rx_buf[255];
+volatile uint8_t rx_buf_pos;
+
+uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
+
 void uart0_isr() __interrupt UART0_IRQn {
     if(SCON0_RI) {
         uint8_t c = SBUF0;
         SCON0_RI = 0;
-        switch(rx_state) {
-            case 0: if(c == 0x37) rx_state = 1; break;
-            case 1: if(c == 0x19) rx_state = 2; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
-            case 2: if(c == 0x15) rx_state = 3; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
-            case 3: if(c == 0x3c) rx_state = 4; else if(c == 0x37) rx_state = 1; else rx_state = 0; break;
-            case 4:
-                if(c == 0) {
-                    __critical {
-                        send_byte(0xa4);
-                        send_byte(0x76);
-                        send_byte(0x6a);
-                        send_byte(0x7f);
-                        send_byte(revs);
-                    }
-                } else if(c == 255) {
-                    RSTSRC = 0x10; // reset into bootloader
-                    while(1);
-                } else {
-                    on_time = c;
+        if(c == ESCAPE) {
+            if(in_escape) {
+                in_message = 0; // shouldn't happen, reset
+            }
+            in_escape = 1;
+        } else if(in_escape) {
+            in_escape = 0;
+            if(c == ESCAPE_START) {
+                in_message = 1;
+                rx_buf_pos = 0;
+                crc_init();
+            } else if(c == ESCAPE_ESCAPE && in_message) {
+                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                    in_message = 0;
                 }
-                
-                rx_state = 0;
-                break;
+                rx_buf[rx_buf_pos++] = ESCAPE;
+                crc_update(ESCAPE);
+            } else if(c == ESCAPE_END && in_message) {
+                // do something with rx_buf and rx_buf_pos
+                crc_finalize();
+                if(rx_buf_pos >= 4 && crc_good()) {
+                    rx_buf_pos -= 4;
+                    if(rx_buf_pos == 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
+                        if(rx_buf[2] == 0) {
+                            RSTSRC = 0x10; // reset into bootloader
+                            while(1);
+                        } else if(rx_buf[2] == 1) {
+                            __critical {
+                                uint8_t i;
+                                send_byte(0xff);
+                                crc_init();
+                                send_byte(ESCAPE);
+                                send_byte(ESCAPE_START);
+                                send_escaped_byte(3); crc_update(3);
+                                send_escaped_byte(*id_pointer); crc_update(*id_pointer);
+                                send_escaped_byte(revs); crc_update(revs);
+                                send_escaped_byte(rx_buf_pos); crc_update(rx_buf_pos);
+                                crc_finalize();
+                                for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+                                send_byte(ESCAPE);
+                                send_byte(ESCAPE_END);
+                            }
+                        } else if(rx_buf[2] == 2) {
+                            on_time = rx_buf[3];
+                        }
+                    }
+                }
+                in_message = 0;
+            } else {
+                in_message = 0; // shouldn't happen, reset
+            }
+        } else {
+            if(in_message) {
+                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                    in_message = 0;
+                }
+                rx_buf[rx_buf_pos++] = c;
+                crc_update(c);
+            } else {
+                // shouldn't happen, ignore
+            }
         }
     }
     if(SCON0_TI) {
-        sending = 0;
         SCON0_TI = 0;
-        if(!sending && tx_buf_read_pos != tx_buf_write_pos) {
+        // sending is 1
+        if(tx_buf_read_pos != tx_buf_write_pos) {
             SBUF0 = tx_buf[tx_buf_read_pos++];
             sending = 1;
+        } else {
+            sending = 0;
+            P0MDOUT = 0;
         }
     }
 }
@@ -147,7 +208,7 @@ void main() {
     OSCICN |= 0x03; // set clock divider to 1
     
     P0 = 0xFF;
-    P0MDOUT = 0;//(1 << Tx_Out);
+    P0MDOUT = 0;
     P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
     P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
     
@@ -157,7 +218,7 @@ void main() {
     P1SKIP = (1 << Adc_Ip);
     
     XBR0 = 0x01; // enable uart
-    XBR1 = 0x40; // enable crossbar
+    XBR1 = 0xc0; // disable pullups, enable crossbar
     
     // configure uart
     TCON = 0x00;
