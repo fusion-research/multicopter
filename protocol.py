@@ -51,5 +51,5 @@ class Protocol(object):
                     if in_message:
                         buf.append(byte)
                     else:
-                        print 'err2', byte
+                        #print 'err2', byte
                         pass # shouldn't happen, ignore

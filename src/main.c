@@ -148,7 +148,7 @@ void uart0_isr() __interrupt UART0_IRQn {
                 crc_finalize();
                 if(rx_buf_pos >= 4 && crc_good()) {
                     rx_buf_pos -= 4;
-                    if(rx_buf_pos == 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
+                    if(rx_buf_pos >= 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
                         if(rx_buf[2] == 0) {
                             RSTSRC = 0x10; // reset into bootloader
                             while(1);
@@ -162,7 +162,6 @@ void uart0_isr() __interrupt UART0_IRQn {
                                 send_escaped_byte(3); crc_update(3);
                                 send_escaped_byte(*id_pointer); crc_update(*id_pointer);
                                 send_escaped_byte(revs); crc_update(revs);
-                                send_escaped_byte(rx_buf_pos); crc_update(rx_buf_pos);
                                 crc_finalize();
                                 for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
                                 send_byte(ESCAPE);
