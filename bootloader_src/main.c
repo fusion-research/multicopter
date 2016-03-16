@@ -25,6 +25,15 @@ void ext_isr14() __interrupt 14;
 #define Rcp_In 5
 #define Tx_Out 4
 
+// port 1
+#define AnFET 7
+#define ApFET 6
+#define CnFET 5
+#define CpFET 4
+#define BnFET 3
+#define BpFET 2
+#define Adc_Ip 0
+
 uint8_t read_byte() {
     uint8_t res;
     while(!SCON0_RI);
@@ -69,6 +78,11 @@ void main() {
     PCA0MD = 0x00; // disable watchdog
     
     OSCICN = 0xc3; // set clock divider to 1
+    
+    P1 = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip);
+    P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
+    P1MDIN = ~(1 << Adc_Ip);
+    P1SKIP = (1 << Adc_Ip);
     
     XBR0 = 0x01; // enable uart
     XBR1 = 0xc0; // disable pullups, enable crossbar
