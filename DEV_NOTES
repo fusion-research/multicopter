@@ -1,0 +1,9 @@
+program memory map
+------------------
+
+page = 512 bytes = 0x200 bytes
+
+pages 0-3 bootloader
+pages 4-13 main program with interrupt table @ 0x800
+page 14 1 byte ID @ 0x1c00
+page 15 reserved
