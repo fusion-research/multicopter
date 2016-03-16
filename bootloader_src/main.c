@@ -43,44 +43,125 @@ uint8_t read_byte() {
     SCON0_RI = 0;
     return res;
 }
-
 void send_byte(uint8_t x) {
     while(!SCON0_TI);
     SCON0_TI = 0;
     SBUF0 = x;
 }
 
-void send_and_crc(uint8_t byte) {
-    send_byte(byte);
-    crc_update(byte);
-}
+#define ESCAPE        0x34
+#define ESCAPE_START  0x01
+#define ESCAPE_END    0x02
+#define ESCAPE_ESCAPE 0x03
 
 void start_tx() {
     crc_init();
     P0MDOUT = (1 << Tx_Out);
     send_byte(0xff);
-    send_and_crc(0xe4);
-    send_and_crc(0x8c);
-    send_and_crc(0xf1);
-    send_and_crc(0xcb);
+    send_byte(ESCAPE);
+    send_byte(ESCAPE_START);
+}
+void send_escaped_byte(uint8_t x) {
+    if(x == ESCAPE) {
+        send_byte(ESCAPE);
+        send_byte(ESCAPE_ESCAPE);
+    } else {
+        send_byte(x);
+    }
+}
+void send_escaped_byte_and_crc(uint8_t byte) {
+    send_escaped_byte(byte);
+    crc_update(byte);
 }
 void end_tx() {
     uint8_t i;
     crc_finalize();
-    for(i = 3; i <= 3; i--) {
-        send_byte(crc.as_4_uint8[i]);
-    }
+    for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+    send_byte(ESCAPE);
+    send_byte(ESCAPE_END);
     while(!SCON0_TI);
     P0MDOUT = 0;
 }
 
+volatile __xdata uint8_t rx_buf[255];
+volatile uint8_t rx_buf_pos;
+
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
 
-void main() {
+void handle_message() {
+    if(rx_buf[0] != 0) return;
+    if(rx_buf[1] != *id_pointer) return;
+    
+    if(rx_buf[2] == 0) { // read page
+        uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)rx_buf[3]) << 9);
+        start_tx();
+        send_escaped_byte_and_crc(1);
+        send_escaped_byte_and_crc(*id_pointer);
+        {
+            uint16_t i;
+            for(i = 0; i < 512; i++) {
+                send_escaped_byte_and_crc(*ptr++);
+            }
+        }
+        end_tx();
+        return;
+    } else if(rx_buf[2] == 1) { // write string
+        uint8_t i;
+        uint8_t length = rx_buf[3];
+        uint16_t addr = ((((uint16_t)rx_buf[4]) << 8) | rx_buf[5]);
+        if(length > 16) return;
+        #ifndef UPGRADER
+            if(addr < 0x800 || addr >= 0x2000 || addr + length > 0x1E00) return;
+        #endif
+        for(i = 0; i < length; i++) {
+            PSCTL = 0x01; // PSWE = 1, PSEE = 0
+            FLKEY = 0xA5;
+            FLKEY = 0xF1;
+            *(uint8_t __xdata *)addr = rx_buf[6+i];
+            PSCTL = 0x00; // PSWE = 0
+            addr++;
+        }
+    } else if(rx_buf[2] == 2) { // erase page
+        #ifndef UPGRADER
+            if(rx_buf[3] < 4 || rx_buf[3] >= 14) return;
+        #endif
+        PSCTL = 0x03; // PSWE = 1, PSEE = 1
+        FLKEY = 0xA5;
+        FLKEY = 0xF1;
+        *(uint8_t __xdata *)(((uint16_t)rx_buf[3]) << 9) = 0;
+        PSCTL = 0x00;
+    } else if(rx_buf[2] == 3) { // run program
+    } else {
+        return;
+    }
+    
+    start_tx();
+    send_escaped_byte_and_crc(1);
+    send_escaped_byte_and_crc(*id_pointer);
+    {
+        uint8_t i;
+        for(i = 2; i < rx_buf_pos; i++) {
+            send_escaped_byte_and_crc(rx_buf[i]);
+        }
+    }
+    end_tx();
+    
+    if(rx_buf[2] == 3) { // run program
+        #ifndef UPGRADER
+            ext_reset();
+        #else
+            RSTSRC = 0x10; // reset into bootloader
+            while(1);
+        #endif
+    }
+}
+
+int _sdcc_external_startup() {
     PCA0MD = 0x00; // disable watchdog
     
     OSCICN = 0xc3; // set clock divider to 1
     
+    // disable FETs
     P1 = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip);
     P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
     P1MDIN = ~(1 << Adc_Ip);
@@ -88,6 +169,12 @@ void main() {
     
     XBR0 = 0x01; // enable uart
     XBR1 = 0xc0; // disable pullups, enable crossbar
+    
+    return 0; // do normal initialization of static/global variables
+}
+
+void main() {
+    bit in_escape = 0, in_message = 0;
     
     // configure uart
     TCON = 0x00;
@@ -97,100 +184,52 @@ void main() {
     TCON = 0x40;
     SCON0 = 0x00;
     SCON0_TI = 1;
+    SCON0_REN = 1;
     
     while(true) {
-        uint8_t c, buf[21], i;
-        while(!SCON0_TI); // wait for any transmissions to finish
+        uint8_t c;
+        while(!SCON0_RI);
+        c = SBUF0;
         SCON0_RI = 0;
-        SCON0_REN = 1;
-got_nothing:
-        if(read_byte() != 0xd8) goto got_nothing;
-got_first:
-        crc_init();
-        crc_update(0xd8);
         
-        c = read_byte();
-        if(c == 0xd8) goto got_first;
-        else if(c != 0x30) goto got_nothing;
-        crc_update(0x30);
-        
-        c = read_byte();
-        if(c == 0xd8) goto got_first;
-        else if(c != 0x03) goto got_nothing;
-        crc_update(0x03);
-        
-        c = read_byte();
-        if(c == 0xd8) goto got_first;
-        else if(c != 0x7d) goto got_nothing;
-        crc_update(0x7d);
-        
-        for(i = 0; i < 21; i++) {
-            c = read_byte();
-            buf[i] = c;
-            crc_update(c);
-        }
-        crc_finalize();
-        for(i = 3; i <= 3; i--) {
-            if(read_byte() != crc.as_4_uint8[i]) goto got_nothing;
-        }
-        
-        SCON0_REN = 0;
-        
-        if(buf[20] != *id_pointer) continue;
-        
-        if(buf[0] == 0) { // read page
-            uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)buf[1]) << 9);
-            start_tx();
-            {
-                uint16_t i;
-                for(i = 0; i < 512; i++) {
-                    send_and_crc(*ptr++);
+        if(c == ESCAPE) {
+            if(in_escape) {
+                in_message = 0; // shouldn't happen, reset
+            }
+            in_escape = 1;
+        } else if(in_escape) {
+            in_escape = 0;
+            if(c == ESCAPE_START) {
+                in_message = 1;
+                rx_buf_pos = 0;
+                crc_init();
+            } else if(c == ESCAPE_ESCAPE && in_message) {
+                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                    in_message = 0;
                 }
+                rx_buf[rx_buf_pos++] = ESCAPE;
+                crc_update(ESCAPE);
+            } else if(c == ESCAPE_END && in_message) {
+                // do something with rx_buf and rx_buf_pos
+                crc_finalize();
+                if(rx_buf_pos >= 4 && crc_good()) {
+                    rx_buf_pos -= 4;
+                    handle_message();
+                }
+                in_message = 0;
+            } else {
+                in_message = 0; // shouldn't happen, reset
             }
-            end_tx();
-            continue;
-        } else if(buf[0] == 1) { // write string
-            uint8_t length = buf[1];
-            uint16_t addr = ((((uint16_t)buf[2]) << 8) | buf[3]);
-            if(length > 16) continue;
-            #ifndef UPGRADER
-                if(addr < 0x400 || addr >= 0x2000 || addr + length > 0x1E00) continue;
-            #endif
-            for(i = 0; i < length; i++) {
-                PSCTL = 0x01; // PSWE = 1, PSEE = 0
-                FLKEY = 0xA5;
-                FLKEY = 0xF1;
-                *(uint8_t __xdata *)addr = buf[4+i];
-                PSCTL = 0x00; // PSWE = 0
-                addr++;
-            }
-        } else if(buf[0] == 2) { // erase page
-            #ifndef UPGRADER
-                if(buf[1] < 2 || buf[1] >= 14) continue;
-            #endif
-            PSCTL = 0x03; // PSWE = 1, PSEE = 1
-            FLKEY = 0xA5;
-            FLKEY = 0xF1;
-            *(uint8_t __xdata *)(((uint16_t)buf[1]) << 9) = 0;
-            PSCTL = 0x00;
-        } else if(buf[0] == 3) { // run program
         } else {
-            continue;
-        }
-        
-        start_tx();
-        for(i = 0; i < sizeof(buf); i++) {
-            send_and_crc(buf[i]);
-        }
-        end_tx();
-        
-        if(buf[0] == 3) { // run program
-            #ifndef UPGRADER
-                ext_reset();
-            #else
-                RSTSRC = 0x10; // reset into bootloader
-                while(1);
-            #endif
+            if(in_message) {
+                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                    in_message = 0;
+                }
+                rx_buf[rx_buf_pos++] = c;
+                crc_update(c);
+            } else {
+                // shouldn't happen, ignore
+            }
         }
     }
 }

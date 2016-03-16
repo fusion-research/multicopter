@@ -13,8 +13,9 @@ import protocol
 ih = intelhex.IntelHex(sys.argv[1])
 id_ = int(sys.argv[2])
 
-b = bootloader.Bootloader(serial.Serial('/dev/ttyUSB0', 115200, timeout=1), id_)
-p = protocol.Protocol(serial.Serial('/dev/ttyUSB0', 115200, timeout=1))
+s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
+b = bootloader.Bootloader2(s, id_)
+p = protocol.Protocol(s)
 
 print 'resetting'
 for i in xrange(10):
