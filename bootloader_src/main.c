@@ -4,6 +4,7 @@
 
 #include "crc.h"
 
+#ifndef UPGRADER
 void ext_reset();
 void ext_isr0() __interrupt 0;
 void ext_isr1() __interrupt 1;
@@ -20,6 +21,7 @@ void ext_isr11() __interrupt 11;
 void ext_isr12() __interrupt 12;
 void ext_isr13() __interrupt 13;
 void ext_isr14() __interrupt 14;
+#endif
 
 // port 0
 #define Rcp_In 5
@@ -136,7 +138,7 @@ got_first:
         
         if(buf[20] != *id_pointer) continue;
         
-        if(buf[0] == 0) {
+        if(buf[0] == 0) { // read page
             uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)buf[1]) << 9);
             start_tx();
             {
@@ -147,11 +149,13 @@ got_first:
             }
             end_tx();
             continue;
-        } else if(buf[0] == 1) { // write
+        } else if(buf[0] == 1) { // write string
             uint8_t length = buf[1];
             uint16_t addr = ((((uint16_t)buf[2]) << 8) | buf[3]);
             if(length > 16) continue;
-            if(addr < 0x200 || addr >= 0x2000 || addr + length > 0x1E00) continue;
+            #ifndef UPGRADER
+                if(addr < 0x400 || addr >= 0x2000 || addr + length > 0x1E00) continue;
+            #endif
             for(i = 0; i < length; i++) {
                 PSCTL = 0x01; // PSWE = 1, PSEE = 0
                 FLKEY = 0xA5;
@@ -160,8 +164,10 @@ got_first:
                 PSCTL = 0x00; // PSWE = 0
                 addr++;
             }
-        } else if(buf[0] == 2) { // erase
-            if(buf[1] < 2 || buf[1] >= 14) continue;
+        } else if(buf[0] == 2) { // erase page
+            #ifndef UPGRADER
+                if(buf[1] < 2 || buf[1] >= 14) continue;
+            #endif
             PSCTL = 0x03; // PSWE = 1, PSEE = 1
             FLKEY = 0xA5;
             FLKEY = 0xF1;
@@ -179,7 +185,12 @@ got_first:
         end_tx();
         
         if(buf[0] == 3) { // run program
-            ext_reset();
+            #ifndef UPGRADER
+                ext_reset();
+            #else
+                RSTSRC = 0x10; // reset into bootloader
+                while(1);
+            #endif
         }
     }
 }
