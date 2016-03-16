@@ -49,18 +49,12 @@ void send_byte(uint8_t x) {
     SBUF0 = x;
 }
 
+uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
+
 #define ESCAPE        0x34
 #define ESCAPE_START  0x01
 #define ESCAPE_END    0x02
 #define ESCAPE_ESCAPE 0x03
-
-void start_tx() {
-    crc_init();
-    P0MDOUT = (1 << Tx_Out);
-    send_byte(0xff);
-    send_byte(ESCAPE);
-    send_byte(ESCAPE_START);
-}
 void send_escaped_byte(uint8_t x) {
     if(x == ESCAPE) {
         send_byte(ESCAPE);
@@ -72,6 +66,15 @@ void send_escaped_byte(uint8_t x) {
 void send_escaped_byte_and_crc(uint8_t byte) {
     send_escaped_byte(byte);
     crc_update(byte);
+}
+void start_tx() {
+    crc_init();
+    P0MDOUT = (1 << Tx_Out);
+    send_byte(0xff);
+    send_byte(ESCAPE);
+    send_byte(ESCAPE_START);
+    send_escaped_byte_and_crc(1);
+    send_escaped_byte_and_crc(*id_pointer);
 }
 void end_tx() {
     uint8_t i;
@@ -86,8 +89,6 @@ void end_tx() {
 volatile __xdata uint8_t rx_buf[255];
 volatile uint8_t rx_buf_pos;
 
-uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
-
 void handle_message() {
     if(rx_buf[0] != 0) return;
     if(rx_buf[1] != *id_pointer) return;
@@ -95,8 +96,6 @@ void handle_message() {
     if(rx_buf[2] == 0) { // read page
         uint8_t __code *ptr = (uint8_t __code *)(((uint16_t)rx_buf[3]) << 9);
         start_tx();
-        send_escaped_byte_and_crc(1);
-        send_escaped_byte_and_crc(*id_pointer);
         {
             uint16_t i;
             for(i = 0; i < 512; i++) {
@@ -111,7 +110,9 @@ void handle_message() {
         uint16_t addr = ((((uint16_t)rx_buf[4]) << 8) | rx_buf[5]);
         if(length > 16) return;
         #ifndef UPGRADER
-            if(addr < 0x800 || addr >= 0x2000 || addr + length > 0x1E00) return;
+            if(addr < 0x800 || addr >= 0x2000 || addr + length > 0x1c00) return;
+        #else
+            if(addr >= 0x2000 || addr + length > 0x800) return;
         #endif
         for(i = 0; i < length; i++) {
             PSCTL = 0x01; // PSWE = 1, PSEE = 0
@@ -124,6 +125,8 @@ void handle_message() {
     } else if(rx_buf[2] == 2) { // erase page
         #ifndef UPGRADER
             if(rx_buf[3] < 4 || rx_buf[3] >= 14) return;
+        #else
+            if(rx_buf[3] >= 4) return;
         #endif
         PSCTL = 0x03; // PSWE = 1, PSEE = 1
         FLKEY = 0xA5;
@@ -136,8 +139,6 @@ void handle_message() {
     }
     
     start_tx();
-    send_escaped_byte_and_crc(1);
-    send_escaped_byte_and_crc(*id_pointer);
     {
         uint8_t i;
         for(i = 2; i < rx_buf_pos; i++) {
