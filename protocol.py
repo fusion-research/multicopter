@@ -17,7 +17,7 @@ class Protocol(object):
         data = data + struct.pack('<I', binascii.crc32(data) & 0xffffffff)
         res = '\xff' + chr(ESCAPE) + chr(ESCAPE_START) + data.replace(chr(ESCAPE), chr(ESCAPE) + chr(ESCAPE_ESCAPE)) + chr(ESCAPE) + chr(ESCAPE_END)
         self._s.write(res)
-
+    
     def read_packet(self):
         in_message = False
         in_escape = False

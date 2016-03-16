@@ -4,8 +4,6 @@ import sys
 
 import intelhex
 
-import bootloader
-
 
 ih = intelhex.IntelHex(sys.argv[1])
 

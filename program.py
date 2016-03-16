@@ -42,9 +42,9 @@ if dirty_pages:
             print 'erasing page', p
             b.erase_page(p)
             for a in xrange(PAGE_SIZE*p, PAGE_SIZE*(p+1)): device_data[a] = 0xff
-
+    
     dirty_addresses = {a for a in d if device_data[a] != d[a]}
-
+    
     reversed_sorted_dirty_addresses = sorted(dirty_addresses, reverse=True)
     while reversed_sorted_dirty_addresses:
         start_addr = reversed_sorted_dirty_addresses.pop()
@@ -57,14 +57,14 @@ if dirty_pages:
         print 'writing', len(data), 'bytes to', hex(start_addr)
         
         b.write(start_addr, data)
-
+    
     print 'verifying...'
-
+    
     device_data = {}
     for p in pages:
         print 'reading page', p
         device_data.update(dict(zip(xrange(PAGE_SIZE*p, PAGE_SIZE*(p+1)), map(ord, b.read_page(p)))))
-
+    
     dirty_pages = {a//PAGE_SIZE for a in d if device_data[a] != d[a]}
     assert not dirty_pages
 
