@@ -18,5 +18,6 @@ while True:
     x = reader.next()
     if x is None: continue
     t = x[3] + 2**8*x[4] + 2**16*x[5] + 2**24*x[6]
-    print x, t-l
+    t2 = x[3+4] + 2**8*x[4+4] + 2**16*x[5+4] + 2**24*x[6+4]
+    print x, t-l, t2-t
     l = t

@@ -262,12 +262,20 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
+bit even = 1;
+uint32_t even_time;
+
 void timer2_isr() __interrupt TIMER2_IRQn {
     TMR2CN_TR2 = 0;
     TMR2CN_TF2H = 0;
     
-    {
-        uint8_t i;
+    if(even) {
+        even = 0;
+        TMR2L = 0xff;
+        TMR2H = 0xff;
+        even_time = read_timer0();
+        TMR2CN_TR2 = 1;
+    } else {
         uint32_t t = read_timer0();
         send_byte(0xff);
         crc_init();
@@ -280,15 +288,19 @@ void timer2_isr() __interrupt TIMER2_IRQn {
         send_escaped_byte_and_crc((t >>  8) & 0xff);
         send_escaped_byte_and_crc((t >> 16) & 0xff);
         send_escaped_byte_and_crc((t >> 24) & 0xff);
+        send_escaped_byte_and_crc((even_time >>  0) & 0xff);
+        send_escaped_byte_and_crc((even_time >>  8) & 0xff);
+        send_escaped_byte_and_crc((even_time >> 16) & 0xff);
+        send_escaped_byte_and_crc((even_time >> 24) & 0xff);
         crc_finalize();
-        for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+        { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
         send_byte(ESCAPE);
         send_byte(ESCAPE_END);
+        TMR2L = 0;
+        TMR2H = 0;
+        TMR2CN_TR2 = 1;
+        even = 1;
     }
-    
-    TMR2L = 0;
-    TMR2H = 0;
-    TMR2CN_TR2 = 1;
 }
 
 void main() {
