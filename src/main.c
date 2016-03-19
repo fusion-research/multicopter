@@ -174,7 +174,6 @@ void handle_message() {
         } else if(rx_buf[2] == 2) {
             on_time = rx_buf[3];
         } else if(rx_buf[2] == 3) { // get time
-            uint8_t i;
             uint32_t t = read_timer0();
             send_byte(0xff);
             crc_init();
@@ -188,7 +187,7 @@ void handle_message() {
             send_escaped_byte_and_crc((t >> 16) & 0xff);
             send_escaped_byte_and_crc((t >> 24) & 0xff);
             crc_finalize();
-            for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+            { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
             send_byte(ESCAPE);
             send_byte(ESCAPE_END);
         } else if(rx_buf[2] == 4) { // test time
@@ -262,106 +261,70 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
-bit even = 1;
-uint32_t even_time;
+uint8_t state = 0;
+uint8_t count = 255;
+uint8_t f;
+uint32_t last_t;
+bit wait_more;
 
 void timer2_isr() __interrupt TIMER2_IRQn {
+    uint32_t next_t;
+start:
     TMR2CN_TR2 = 0;
     TMR2CN_TF2H = 0;
     
-    if(even) {
-        even = 0;
-        TMR2L = 0xff;
-        TMR2H = 0xff;
-        even_time = read_timer0();
-        TMR2CN_TR2 = 1;
+    if(wait_more) {
+        next_t = last_t;
     } else {
-        uint32_t t = read_timer0();
-        send_byte(0xff);
-        crc_init();
-        send_byte(ESCAPE);
-        send_byte(ESCAPE_START);
-        send_escaped_byte_and_crc(3);
-        send_escaped_byte_and_crc(*id_pointer);
-        send_escaped_byte_and_crc(3);
-        send_escaped_byte_and_crc((t >>  0) & 0xff);
-        send_escaped_byte_and_crc((t >>  8) & 0xff);
-        send_escaped_byte_and_crc((t >> 16) & 0xff);
-        send_escaped_byte_and_crc((t >> 24) & 0xff);
-        send_escaped_byte_and_crc((even_time >>  0) & 0xff);
-        send_escaped_byte_and_crc((even_time >>  8) & 0xff);
-        send_escaped_byte_and_crc((even_time >> 16) & 0xff);
-        send_escaped_byte_and_crc((even_time >> 24) & 0xff);
-        crc_finalize();
-        { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
-        send_byte(ESCAPE);
-        send_byte(ESCAPE_END);
-        TMR2L = 0;
-        TMR2H = 0;
+        switch(state) {
+            case 0:
+                {
+                    uint32_t t = read_timer0();
+                    send_byte(0xff);
+                    crc_init();
+                    send_byte(ESCAPE);
+                    send_byte(ESCAPE_START);
+                    send_escaped_byte_and_crc(3);
+                    send_escaped_byte_and_crc(*id_pointer);
+                    send_escaped_byte_and_crc(3);
+                    send_escaped_byte_and_crc((t >>  0) & 0xff);
+                    send_escaped_byte_and_crc((t >>  8) & 0xff);
+                    send_escaped_byte_and_crc((t >> 16) & 0xff);
+                    send_escaped_byte_and_crc((t >> 24) & 0xff);
+                    crc_finalize();
+                    { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
+                    send_byte(ESCAPE);
+                    send_byte(ESCAPE_END);
+                }
+                
+                next_t = last_t + 24500000;
+                break;
+        }
+    }
+    
+    {
+        uint32_t now = read_timer0();
+        uint32_t dt = next_t - now;
+        last_t = next_t;
+        if(dt >= 0x80000000) { // negative
+            goto start;
+        }
+        
+        if(dt >= 0x10000) {
+            TMR2L = 0;
+            TMR2H = 0x80;
+            wait_more = 1;
+        } else {
+            uint16_t dt2 = 65535 - dt;
+            TMR2L = dt2&0xff;
+            TMR2H = dt2>>8;
+            wait_more = 0;
+        }
         TMR2CN_TR2 = 1;
-        even = 1;
     }
 }
 
-void main() {
-    PCA0MD &= ~0x40; // disable watchdog
-    
-    OSCICN |= 0x03; // set clock divider to 1
-    
-    P0 = 0xFF;
-    P0MDOUT = 0;
-    P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
-    P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
-    
-    P1 = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip);
-    P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
-    P1MDIN = ~(1 << Adc_Ip);
-    P1SKIP = (1 << Adc_Ip);
-    
-    XBR0 = 0x01; // enable uart
-    XBR1 = 0xc0; // disable pullups, enable crossbar
-    
-    // configure uart
-    TMOD = (TMOD & ~0xF0) | 0x20;
-    CKCON |= 0x08;
-    TL1 = 0;
-    TH1 = 0x96;
-    TCON_TR1 = 1;
-    SCON0 = 0x00;
-    
-    switch_power_off();
-    
-    CPT0CN = 0x80; // Comparator enabled, no hysteresis
-    CPT0MD = 0x00; // Comparator response time 100ns
-    
-    SCON0_RI = 0;
-    SCON0_REN = 1;
-    IE_ES0 = 1;
-    
-    //while(true);
-    
-    // start timebase
-    TMOD = (TMOD & ~0x0F) | 0x01;
-    CKCON |= 0x04; // system clock
-    //CKCON = (CKCON & ~0b111) | 0b010; // system clock / 48
-    TL0 = 0;
-    TH0 = 0;
-    TCON_TF0 = 0; // clear overflow flag
-    IE_ET0 = 1; // enable overflow interrupt
-    IP_PT0 = 1; // high priority XXX
-    TCON_TR0 = 1; // run
-    
-    CKCON |= 0x10; // timer 2 on system clock
-    TMR2CN = 0;
-    TMR2RLL = 0;
-    TMR2RLH = 0;
-    TMR2L = 0;
-    TMR2H = 0;
-    TMR2CN_TR2 = 1;
-    IE_ET2 = 1;
-    
-    enable_interrupts();
-    
+/*
     while(true) {
         uint8_t count = 255;
         uint8_t f;
@@ -441,4 +404,69 @@ void main() {
         
         revs++;
     }
+    }
+}
+*/
+
+void main() {
+    PCA0MD &= ~0x40; // disable watchdog
+    
+    OSCICN |= 0x03; // set clock divider to 1
+    
+    P0 = 0xFF;
+    P0MDOUT = 0;
+    P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
+    P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
+    
+    P1 = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip);
+    P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
+    P1MDIN = ~(1 << Adc_Ip);
+    P1SKIP = (1 << Adc_Ip);
+    
+    XBR0 = 0x01; // enable uart
+    XBR1 = 0xc0; // disable pullups, enable crossbar
+    
+    // configure uart
+    TMOD = (TMOD & ~0xF0) | 0x20;
+    CKCON |= 0x08;
+    TL1 = 0;
+    TH1 = 0x96;
+    TCON_TR1 = 1;
+    SCON0 = 0x00;
+    
+    switch_power_off();
+    
+    CPT0CN = 0x80; // Comparator enabled, no hysteresis
+    CPT0MD = 0x00; // Comparator response time 100ns
+    
+    SCON0_RI = 0;
+    SCON0_REN = 1;
+    IE_ES0 = 1;
+    
+    //while(true);
+    
+    // start timebase
+    TMOD = (TMOD & ~0x0F) | 0x01;
+    CKCON |= 0x04; // system clock
+    //CKCON = (CKCON & ~0b111) | 0b010; // system clock / 48
+    TL0 = 0;
+    TH0 = 0;
+    TCON_TF0 = 0; // clear overflow flag
+    IE_ET0 = 1; // enable overflow interrupt
+    //IP_PT0 = 1; // high priority XXX
+    TCON_TR0 = 1; // run
+    
+    CKCON |= 0x10; // timer 2 on system clock
+    TMR2CN = 0;
+    TMR2RLL = 0;
+    TMR2RLH = 0;
+    TMR2L = 0;
+    TMR2H = 0;
+    TMR2CN_TR2 = 1;
+    IP_PT2 = 1; // high priority
+    IE_ET2 = 1;
+    
+    enable_interrupts();
+    
+    while(true);
 }
