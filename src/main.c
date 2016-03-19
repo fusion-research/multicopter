@@ -115,12 +115,95 @@ void send_escaped_byte(uint8_t x) {
         send_byte(x);
     }
 }
+void send_escaped_byte_and_crc(uint8_t x) {
+    send_escaped_byte(x);
+    crc_update(x);
+}
 
 volatile bit in_escape = 0, in_message = 0;
 volatile __xdata uint8_t rx_buf[255];
 volatile uint8_t rx_buf_pos;
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
+
+
+uint16_t timer0_overflows = 0;
+void timer0_isr() __interrupt TIMER0_IRQn {
+    timer0_overflows++;
+}
+uint32_t read_timer0() {
+    uint32_t res;
+    __critical {
+        while(true) {
+            if(TCON_TF0) {
+                TCON_TF0 = 0;
+                timer0_overflows++;
+            }
+            {
+                uint8_t hi = TH0;
+                uint8_t lo = TL0;
+                uint8_t hi2 = TH0;
+                if(hi2 != hi) continue;
+                if(TCON_TF0) continue;
+                res = (((uint32_t)timer0_overflows) << 16) | (((uint16_t)hi) << 8) | lo;
+                break;
+            }
+        }
+    }
+    return res;
+}
+
+void handle_message() {
+    if(rx_buf_pos >= 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
+        if(rx_buf[2] == 0) {
+            RSTSRC = 0x10; // reset into bootloader
+            while(1);
+        } else if(rx_buf[2] == 1) {
+            uint8_t i;
+            send_byte(0xff);
+            crc_init();
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_START);
+            send_escaped_byte_and_crc(3);
+            send_escaped_byte_and_crc(*id_pointer);
+            send_escaped_byte_and_crc(revs);
+            crc_finalize();
+            for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_END);
+        } else if(rx_buf[2] == 2) {
+            on_time = rx_buf[3];
+        } else if(rx_buf[2] == 3) { // get time
+            uint8_t i;
+            uint32_t t = read_timer0();
+            send_byte(0xff);
+            crc_init();
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_START);
+            send_escaped_byte_and_crc(3);
+            send_escaped_byte_and_crc(*id_pointer);
+            send_escaped_byte_and_crc(3);
+            send_escaped_byte_and_crc((t >>  0) & 0xff);
+            send_escaped_byte_and_crc((t >>  8) & 0xff);
+            send_escaped_byte_and_crc((t >> 16) & 0xff);
+            send_escaped_byte_and_crc((t >> 24) & 0xff);
+            crc_finalize();
+            for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_END);
+        } else if(rx_buf[2] == 4) { // test time
+            uint32_t i;
+            uint32_t t = read_timer0();
+            for(i = 0; i < 1000000; i++) {
+                uint32_t t2 = read_timer0();
+                if(t2 - t > 0x80000000) {
+                    while(true);
+                }
+                t = t2;
+            }
+        }
+    }
+}
 
 void uart0_isr() __interrupt UART0_IRQn {
     if(SCON0_RI) {
@@ -148,29 +231,7 @@ void uart0_isr() __interrupt UART0_IRQn {
                 crc_finalize();
                 if(rx_buf_pos >= 4 && crc_good()) {
                     rx_buf_pos -= 4;
-                    if(rx_buf_pos >= 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
-                        if(rx_buf[2] == 0) {
-                            RSTSRC = 0x10; // reset into bootloader
-                            while(1);
-                        } else if(rx_buf[2] == 1) {
-                            __critical {
-                                uint8_t i;
-                                send_byte(0xff);
-                                crc_init();
-                                send_byte(ESCAPE);
-                                send_byte(ESCAPE_START);
-                                send_escaped_byte(3); crc_update(3);
-                                send_escaped_byte(*id_pointer); crc_update(*id_pointer);
-                                send_escaped_byte(revs); crc_update(revs);
-                                crc_finalize();
-                                for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
-                                send_byte(ESCAPE);
-                                send_byte(ESCAPE_END);
-                            }
-                        } else if(rx_buf[2] == 2) {
-                            on_time = rx_buf[3];
-                        }
-                    }
+                    handle_message();
                 }
                 in_message = 0;
             } else {
@@ -201,6 +262,35 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
+void timer2_isr() __interrupt TIMER2_IRQn {
+    TMR2CN_TR2 = 0;
+    TMR2CN_TF2H = 0;
+    
+    {
+        uint8_t i;
+        uint32_t t = read_timer0();
+        send_byte(0xff);
+        crc_init();
+        send_byte(ESCAPE);
+        send_byte(ESCAPE_START);
+        send_escaped_byte_and_crc(3);
+        send_escaped_byte_and_crc(*id_pointer);
+        send_escaped_byte_and_crc(3);
+        send_escaped_byte_and_crc((t >>  0) & 0xff);
+        send_escaped_byte_and_crc((t >>  8) & 0xff);
+        send_escaped_byte_and_crc((t >> 16) & 0xff);
+        send_escaped_byte_and_crc((t >> 24) & 0xff);
+        crc_finalize();
+        for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
+        send_byte(ESCAPE);
+        send_byte(ESCAPE_END);
+    }
+    
+    TMR2L = 0;
+    TMR2H = 0;
+    TMR2CN_TR2 = 1;
+}
+
 void main() {
     PCA0MD &= ~0x40; // disable watchdog
     
@@ -220,12 +310,11 @@ void main() {
     XBR1 = 0xc0; // disable pullups, enable crossbar
     
     // configure uart
-    TCON = 0x00;
-    TMOD = 0x20;
-    CKCON = 0x08;
+    TMOD = (TMOD & ~0xF0) | 0x20;
+    CKCON |= 0x08;
     TL1 = 0;
     TH1 = 0x96;
-    TCON = 0x40;
+    TCON_TR1 = 1;
     SCON0 = 0x00;
     
     switch_power_off();
@@ -236,9 +325,30 @@ void main() {
     SCON0_RI = 0;
     SCON0_REN = 1;
     IE_ES0 = 1;
-    enable_interrupts();
     
     //while(true);
+    
+    // start timebase
+    TMOD = (TMOD & ~0x0F) | 0x01;
+    CKCON |= 0x04; // system clock
+    //CKCON = (CKCON & ~0b111) | 0b010; // system clock / 48
+    TL0 = 0;
+    TH0 = 0;
+    TCON_TF0 = 0; // clear overflow flag
+    IE_ET0 = 1; // enable overflow interrupt
+    IP_PT0 = 1; // high priority XXX
+    TCON_TR0 = 1; // run
+    
+    CKCON |= 0x10; // timer 2 on system clock
+    TMR2CN = 0;
+    TMR2RLL = 0;
+    TMR2RLH = 0;
+    TMR2L = 0;
+    TMR2H = 0;
+    TMR2CN_TR2 = 1;
+    IE_ET2 = 1;
+    
+    enable_interrupts();
     
     while(true) {
         uint8_t count = 255;

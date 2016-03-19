@@ -3,6 +3,8 @@ bootloader
 
 main firmware
 -------------
-unique id support
+move PWM to timer interrupt or use PCA
+capture some ADC waveforms to judge if it's useful
+
 closed loop control of angular velocity
 feedback

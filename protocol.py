@@ -24,6 +24,8 @@ class Protocol(object):
         buf = []
         while True:
             d = self._s.read(max(1, self._s.inWaiting()))
+            if not d:
+                yield None
             for byte in d:
                 byte = ord(byte)
                 if byte == ESCAPE:
