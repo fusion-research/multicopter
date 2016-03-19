@@ -2,6 +2,7 @@ from __future__ import division
 
 import struct
 import sys
+import time
 
 import serial
 import intelhex
@@ -20,6 +21,8 @@ p = protocol.Protocol(s)
 print 'resetting'
 for i in xrange(10):
     p.write_packet(struct.pack('>BBB', 2, id_, 0)) # tell user code to reset into bootloader
+
+time.sleep(.1) # wait for reset to complete
 
 PAGE_SIZE = 512
 
