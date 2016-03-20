@@ -81,7 +81,6 @@ _endasm;
 
 
 volatile uint16_t on_time = 0;
-uint16_t off_time = 3084;
 volatile uint16_t revs = 0;
 
 volatile __xdata uint8_t tx_buf[256];
@@ -161,7 +160,10 @@ void handle_message() {
             while(1);
         } else if(rx_buf[2] == 1) { // get status
             uint32_t t = read_timer0();
-            uint8_t i;
+            uint16_t my_revs;
+            __critical {
+                my_revs = revs;
+            }
             if(rx_buf_pos != 3) return;
             send_byte(0xff);
             crc_init();
@@ -169,8 +171,8 @@ void handle_message() {
             send_byte(ESCAPE_START);
             send_escaped_byte_and_crc(3);
             send_escaped_byte_and_crc(*id_pointer);
-            send_escaped_byte_and_crc(revs&0xff);
-            send_escaped_byte_and_crc(revs>>8);
+            send_escaped_byte_and_crc(my_revs&0xff);
+            send_escaped_byte_and_crc(my_revs>>8);
             send_escaped_byte_and_crc((t >>  0) & 0xff);
             send_escaped_byte_and_crc((t >>  8) & 0xff);
             send_escaped_byte_and_crc((t >> 16) & 0xff);
@@ -244,6 +246,7 @@ void uart0_isr() __interrupt UART0_IRQn {
 }
 
 uint16_t my_on_time;
+uint16_t my_off_time;
 uint8_t count = 255;
 uint8_t f;
 uint8_t state = 0;
@@ -256,10 +259,11 @@ void timer2_isr() __interrupt PCA0_IRQn {
         while(true) {
             count = 255;
             my_on_time = on_time;
-            if(my_on_time <= 200 || my_on_time >= 4096) {
+            if(my_on_time < 200 || my_on_time > 2000) {
                 DELAY(1, 2450) // .1 ms
                 continue;
             }
+            my_off_time = 2500 - my_on_time;
             Set_Comp_Phase_C;
             for(f = 0; f < count; f++) {
                 ApFET_on;
@@ -268,7 +272,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 ApFET_off;
                 BnFET_off;
-                DELAY(3, off_time)
+                DELAY(3, my_off_time)
                 if((res & 0x40)) { break; }
             }
             revs++;
@@ -280,7 +284,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 BnFET_off;
                 CpFET_off;
-                DELAY(5, off_time)
+                DELAY(5, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
             revs++;
@@ -292,7 +296,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 AnFET_off;
                 CpFET_off;
-                DELAY(7, off_time)
+                DELAY(7, my_off_time)
                 if((res & 0x40)) { break; }
             }
             revs++;
@@ -304,7 +308,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 AnFET_off;
                 BpFET_off;
-                DELAY(9, off_time)
+                DELAY(9, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
             revs++;
@@ -316,7 +320,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 BpFET_off;
                 CnFET_off;
-                DELAY(11, off_time)
+                DELAY(11, my_off_time)
                 if((res & 0x40)) { break; }
             }
             revs++;
@@ -328,7 +332,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 res = CPT0CN;
                 ApFET_off;
                 CnFET_off;
-                DELAY(13, off_time)
+                DELAY(13, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
             revs++;
