@@ -82,7 +82,7 @@ _endasm;
 
 volatile uint16_t on_time = 0;
 uint16_t off_time = 3084;
-volatile uint8_t revs = 0;
+volatile uint16_t revs = 0;
 
 volatile __xdata uint8_t tx_buf[256];
 volatile uint8_t tx_buf_write_pos = 0;
@@ -128,9 +128,9 @@ uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
 
 
 uint16_t timer0_overflows = 0;
-void timer0_isr() __interrupt TIMER0_IRQn {
+/*void timer0_isr() __interrupt TIMER0_IRQn {
     timer0_overflows++;
-}
+}*/
 uint32_t read_timer0() {
     uint32_t res;
     __critical {
@@ -156,32 +156,21 @@ uint32_t read_timer0() {
 void handle_message() {
     if(rx_buf_pos >= 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
         if(rx_buf[2] == 0) {
+            if(rx_buf_pos != 3) return;
             RSTSRC = 0x10; // reset into bootloader
             while(1);
-        } else if(rx_buf[2] == 1) {
-            uint8_t i;
-            send_byte(0xff);
-            crc_init();
-            send_byte(ESCAPE);
-            send_byte(ESCAPE_START);
-            send_escaped_byte_and_crc(3);
-            send_escaped_byte_and_crc(*id_pointer);
-            send_escaped_byte_and_crc(revs);
-            crc_finalize();
-            for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]);
-            send_byte(ESCAPE);
-            send_byte(ESCAPE_END);
-        } else if(rx_buf[2] == 2) {
-            on_time = 4*(uint16_t)rx_buf[3];
-        } else if(rx_buf[2] == 3) { // get time
+        } else if(rx_buf[2] == 1) { // get status
             uint32_t t = read_timer0();
+            uint8_t i;
+            if(rx_buf_pos != 3) return;
             send_byte(0xff);
             crc_init();
             send_byte(ESCAPE);
             send_byte(ESCAPE_START);
             send_escaped_byte_and_crc(3);
             send_escaped_byte_and_crc(*id_pointer);
-            send_escaped_byte_and_crc(3);
+            send_escaped_byte_and_crc(revs&0xff);
+            send_escaped_byte_and_crc(revs>>8);
             send_escaped_byte_and_crc((t >>  0) & 0xff);
             send_escaped_byte_and_crc((t >>  8) & 0xff);
             send_escaped_byte_and_crc((t >> 16) & 0xff);
@@ -190,16 +179,9 @@ void handle_message() {
             { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
             send_byte(ESCAPE);
             send_byte(ESCAPE_END);
-        } else if(rx_buf[2] == 4) { // test time
-            uint32_t i;
-            uint32_t t = read_timer0();
-            for(i = 0; i < 1000000; i++) {
-                uint32_t t2 = read_timer0();
-                if(t2 - t > 0x80000000) {
-                    while(true);
-                }
-                t = t2;
-            }
+        } else if(rx_buf[2] == 2) { // set power
+            if(rx_buf_pos != 5) return;
+            on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
         }
     }
 }
@@ -274,8 +256,8 @@ void timer2_isr() __interrupt PCA0_IRQn {
         while(true) {
             count = 255;
             my_on_time = on_time;
-            if(my_on_time <= 200) {
-                DELAY(1, 24500) // 1 ms
+            if(my_on_time <= 200 || my_on_time >= 4096) {
+                DELAY(1, 2450) // .1 ms
                 continue;
             }
             Set_Comp_Phase_C;
@@ -289,6 +271,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(3, off_time)
                 if((res & 0x40)) { break; }
             }
+            revs++;
             Set_Comp_Phase_A;
             for(f = 0; f < count; f++) {
                 BnFET_on;
@@ -300,6 +283,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(5, off_time)
                 if(!(res & 0x40)) { break; }
             }
+            revs++;
             Set_Comp_Phase_B;
             for(f = 0; f < count; f++) {
                 AnFET_on;
@@ -311,6 +295,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(7, off_time)
                 if((res & 0x40)) { break; }
             }
+            revs++;
             Set_Comp_Phase_C;
             for(f = 0; f < count; f++) {
                 AnFET_on;
@@ -322,6 +307,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(9, off_time)
                 if(!(res & 0x40)) { break; }
             }
+            revs++;
             Set_Comp_Phase_A;
             for(f = 0; f < count; f++) {
                 BpFET_on;
@@ -333,6 +319,7 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(11, off_time)
                 if((res & 0x40)) { break; }
             }
+            revs++;
             Set_Comp_Phase_B;
             for(f = 0; f < count; f++) {
                 ApFET_on;
@@ -344,7 +331,6 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 DELAY(13, off_time)
                 if(!(res & 0x40)) { break; }
             }
-            
             revs++;
         }
     }
@@ -385,8 +371,6 @@ void main() {
     SCON0_REN = 1;
     IE_ES0 = 1;
     
-    //while(true);
-    
     // start timebase
     TMOD = (TMOD & ~0x0F) | 0x01;
     CKCON |= 0x04; // system clock
@@ -394,7 +378,7 @@ void main() {
     TL0 = 0;
     TH0 = 0;
     TCON_TF0 = 0; // clear overflow flag
-    IE_ET0 = 1; // enable overflow interrupt
+    //IE_ET0 = 1; // enable overflow interrupt
     //IP_PT0 = 1; // high priority XXX has to be, otherwise race condition with other high priority
     TCON_TR0 = 1; // run
     
@@ -419,5 +403,14 @@ void main() {
     
     enable_interrupts();
     
-    while(true);
+    while(true) {
+        if(TCON_TF0) {
+            __critical {
+                if(TCON_TF0) {
+                    TCON_TF0 = 0;
+                    timer0_overflows++;
+                }
+            }
+        }
+    }
 }

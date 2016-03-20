@@ -12,8 +12,8 @@ s = serial.Serial('/dev/ttyUSB0', 115200)
 
 p = protocol.Protocol(s)
 
-for i in xrange(50, 151+1):
+for i in xrange(200, 4096):
     print i
     for id_ in [3]:
-        p.write_packet(struct.pack('>BBBB', 2, id_, 2, i))
-    time.sleep(.1)
+        p.write_packet(struct.pack('<BBBH', 2, id_, 2, i))
+    time.sleep(.01)
