@@ -80,8 +80,8 @@ _endasm;
 }
 
 
-volatile uint8_t on_time = 1;
-uint8_t off_time_long = 3;
+volatile uint16_t on_time = 0;
+uint16_t off_time = 3084;
 volatile uint8_t revs = 0;
 
 volatile __xdata uint8_t tx_buf[256];
@@ -172,7 +172,7 @@ void handle_message() {
             send_byte(ESCAPE);
             send_byte(ESCAPE_END);
         } else if(rx_buf[2] == 2) {
-            on_time = rx_buf[3];
+            on_time = 4*(uint16_t)rx_buf[3];
         } else if(rx_buf[2] == 3) { // get time
             uint32_t t = read_timer0();
             send_byte(0xff);
@@ -261,152 +261,94 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
-uint8_t state = 0;
+uint16_t my_on_time;
 uint8_t count = 255;
 uint8_t f;
-uint32_t last_t;
-bit wait_more;
-
-void timer2_isr() __interrupt TIMER2_IRQn {
-    uint32_t next_t;
-start:
-    TMR2CN_TR2 = 0;
-    TMR2CN_TF2H = 0;
+uint8_t state = 0;
+uint8_t res;
+#define DELAY(n, length) PCA0CP0 = PCA0 + (length); state = n; return; case n:
+void timer2_isr() __interrupt PCA0_IRQn {
+    PCA0CN_CCF0 = 0;
     
-    if(wait_more) {
-        next_t = last_t;
-    } else {
-        switch(state) {
-            case 0:
-                {
-                    uint32_t t = read_timer0();
-                    send_byte(0xff);
-                    crc_init();
-                    send_byte(ESCAPE);
-                    send_byte(ESCAPE_START);
-                    send_escaped_byte_and_crc(3);
-                    send_escaped_byte_and_crc(*id_pointer);
-                    send_escaped_byte_and_crc(3);
-                    send_escaped_byte_and_crc((t >>  0) & 0xff);
-                    send_escaped_byte_and_crc((t >>  8) & 0xff);
-                    send_escaped_byte_and_crc((t >> 16) & 0xff);
-                    send_escaped_byte_and_crc((t >> 24) & 0xff);
-                    crc_finalize();
-                    { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
-                    send_byte(ESCAPE);
-                    send_byte(ESCAPE_END);
-                }
-                
-                next_t = last_t + 24500000;
-                break;
+    switch(state) { case 0:
+        while(true) {
+            count = 255;
+            my_on_time = on_time;
+            if(my_on_time <= 200) {
+                DELAY(1, 24500) // 1 ms
+                continue;
+            }
+            Set_Comp_Phase_C;
+            for(f = 0; f < count; f++) {
+                ApFET_on;
+                BnFET_on;
+                DELAY(2, my_on_time)
+                res = CPT0CN;
+                ApFET_off;
+                BnFET_off;
+                DELAY(3, off_time)
+                if((res & 0x40)) { break; }
+            }
+            Set_Comp_Phase_A;
+            for(f = 0; f < count; f++) {
+                BnFET_on;
+                CpFET_on;
+                DELAY(4, my_on_time)
+                res = CPT0CN;
+                BnFET_off;
+                CpFET_off;
+                DELAY(5, off_time)
+                if(!(res & 0x40)) { break; }
+            }
+            Set_Comp_Phase_B;
+            for(f = 0; f < count; f++) {
+                AnFET_on;
+                CpFET_on;
+                DELAY(6, my_on_time)
+                res = CPT0CN;
+                AnFET_off;
+                CpFET_off;
+                DELAY(7, off_time)
+                if((res & 0x40)) { break; }
+            }
+            Set_Comp_Phase_C;
+            for(f = 0; f < count; f++) {
+                AnFET_on;
+                BpFET_on;
+                DELAY(8, my_on_time)
+                res = CPT0CN;
+                AnFET_off;
+                BpFET_off;
+                DELAY(9, off_time)
+                if(!(res & 0x40)) { break; }
+            }
+            Set_Comp_Phase_A;
+            for(f = 0; f < count; f++) {
+                BpFET_on;
+                CnFET_on;
+                DELAY(10, my_on_time)
+                res = CPT0CN;
+                BpFET_off;
+                CnFET_off;
+                DELAY(11, off_time)
+                if((res & 0x40)) { break; }
+            }
+            Set_Comp_Phase_B;
+            for(f = 0; f < count; f++) {
+                ApFET_on;
+                CnFET_on;
+                DELAY(12, my_on_time)
+                res = CPT0CN;
+                ApFET_off;
+                CnFET_off;
+                DELAY(13, off_time)
+                if(!(res & 0x40)) { break; }
+            }
+            
+            revs++;
         }
-    }
-    
-    {
-        uint32_t now = read_timer0();
-        uint32_t dt = next_t - now;
-        last_t = next_t;
-        if(dt >= 0x80000000) { // negative
-            goto start;
-        }
-        
-        if(dt >= 0x10000) {
-            TMR2L = 0;
-            TMR2H = 0x80;
-            wait_more = 1;
-        } else {
-            uint16_t dt2 = 65535 - dt;
-            TMR2L = dt2&0xff;
-            TMR2H = dt2>>8;
-            wait_more = 0;
-        }
-        TMR2CN_TR2 = 1;
     }
 }
-
-/*
-    while(true) {
-        uint8_t count = 255;
-        uint8_t f;
-        if(on_time == 1) continue;
-        Set_Comp_Phase_C;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            ApFET_on;
-            BnFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            ApFET_off;
-            BnFET_off;
-            longdelay(off_time_long);
-            if((res & 0x40)) { break; }
-        }
-        Set_Comp_Phase_A;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            BnFET_on;
-            CpFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            BnFET_off;
-            CpFET_off;
-            longdelay(off_time_long);
-            if(!(res & 0x40)) { break; }
-        }
-        Set_Comp_Phase_B;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            AnFET_on;
-            CpFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            AnFET_off;
-            CpFET_off;
-            longdelay(off_time_long);
-            if((res & 0x40)) { break; }
-        }
-        Set_Comp_Phase_C;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            AnFET_on;
-            BpFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            AnFET_off;
-            BpFET_off;
-            longdelay(off_time_long);
-            if(!(res & 0x40)) { break; }
-        }
-        Set_Comp_Phase_A;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            BpFET_on;
-            CnFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            BpFET_off;
-            CnFET_off;
-            longdelay(off_time_long);
-            if((res & 0x40)) { break; }
-        }
-        Set_Comp_Phase_B;
-        for(f = 0; f < count; f++) {
-            uint8_t res;
-            ApFET_on;
-            CnFET_on;
-            delay(on_time);
-            res = CPT0CN;
-            ApFET_off;
-            CnFET_off;
-            longdelay(off_time_long);
-            if(!(res & 0x40)) { break; }
-        }
-        
-        revs++;
-    }
-    }
-}
-*/
 
 void main() {
     PCA0MD &= ~0x40; // disable watchdog
@@ -453,9 +395,10 @@ void main() {
     TH0 = 0;
     TCON_TF0 = 0; // clear overflow flag
     IE_ET0 = 1; // enable overflow interrupt
-    //IP_PT0 = 1; // high priority XXX
+    //IP_PT0 = 1; // high priority XXX has to be, otherwise race condition with other high priority
     TCON_TR0 = 1; // run
     
+    /*
     CKCON |= 0x10; // timer 2 on system clock
     TMR2CN = 0;
     TMR2RLL = 0;
@@ -465,6 +408,14 @@ void main() {
     TMR2CN_TR2 = 1;
     IP_PT2 = 1; // high priority
     IE_ET2 = 1;
+    */
+    
+    // PCA setup
+    PCA0MD = 0b00001000; // use system clock
+    PCA0CPM0 = 0b01001001;
+    EIE1 |= 0x10; // enable interrupt
+    EIP1 |= 0x10; // high priority
+    PCA0CN_CR = 1; // run
     
     enable_interrupts();
     

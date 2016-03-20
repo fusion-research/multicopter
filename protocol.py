@@ -12,6 +12,7 @@ ESCAPE_ESCAPE = 0x03
 class Protocol(object):
     def __init__(self, s):
         self._s = s
+        self._reader = self._reader_generator()
     
     def write_packet(self, data):
         data = data + struct.pack('<I', binascii.crc32(data) & 0xffffffff)
@@ -19,6 +20,9 @@ class Protocol(object):
         self._s.write(res)
     
     def read_packet(self):
+        return self._reader.next()
+    
+    def _reader_generator(self):
         in_message = False
         in_escape = False
         buf = []

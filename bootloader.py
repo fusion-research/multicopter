@@ -13,7 +13,8 @@ class Bootloader2(object):
         self._p.write_packet(struct.pack('>BB', 0, self._id) + payload)
     
     def _read_packet(self):
-        for pkt in self._p.read_packet():
+        while True:
+            pkt = self._p.read_packet()
             #print pkt
             if pkt[0] == 1 and pkt[1] == self._id:
                 return ''.join(map(chr, pkt[2:]))
