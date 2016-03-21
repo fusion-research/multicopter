@@ -9,7 +9,7 @@ def simulate(dt, v0, v1, v2, vb_0, vb_1, vb_2, R, i_0, i_1, i_2, L):
         #print i_0, i_1, i_2, zero_current_ports
         realv_0 = v0 if not isinstance(v0, tuple) else (v0[1] if i_0 < 0 else v0[0])
         realv_1 = v1 if not isinstance(v1, tuple) else (v1[1] if i_1 < 0 else v1[0])
-        realv_2 = v2 if not isinstance(v2, tuple) else (v2[1] if      i_2 < 0 else v2[0])
+        realv_2 = v2 if not isinstance(v2, tuple) else (v2[1] if i_2 < 0 else v2[0])
         
         vr_0 = i_0*R
         vr_1 = i_1*R
@@ -29,11 +29,28 @@ def simulate(dt, v0, v1, v2, vb_0, vb_1, vb_2, R, i_0, i_1, i_2, L):
             vl_0 = (realv_0 - vr_0 - vb_0) - v_c
             vl_1 = (realv_1 - vr_1 - vb_1) - v_c
             vl_2 = (realv_2 - vr_2 - vb_2) - v_c
+        elif zero_current_ports == set([0]):
+            v_c = ((realv_1 - vr_1 - vb_1) + (realv_2 - vr_2 - vb_2))/2
+            vl_0 = 0
+            vl_1 = (realv_1 - vr_1 - vb_1) - v_c
+            vl_2 = (realv_2 - vr_2 - vb_2) - v_c
+            
+            realv_0 = vl_0 + v_c + vb_0 + vr_0
+            assert v0[0] <= realv_0 <= v0[1], realv_0
+        elif zero_current_ports == set([1]):
+            v_c = ((realv_0 - vr_0 - vb_0) + (realv_2 - vr_2 - vb_2))/2
+            vl_0 = (realv_0 - vr_0 - vb_0) - v_c
+            vl_1 = 0
+            vl_2 = (realv_2 - vr_2 - vb_2) - v_c
+            
+            realv_1 = vl_1 + v_c + vb_1 + vr_1
+            assert v1[0] <= realv_1 <= v1[1], realv_1
         elif zero_current_ports == set([2]):
             v_c = ((realv_0 - vr_0 - vb_0) + (realv_1 - vr_1 - vb_1))/2
             vl_0 = (realv_0 - vr_0 - vb_0) - v_c
             vl_1 = (realv_1 - vr_1 - vb_1) - v_c
             vl_2 = 0
+            
             realv_2 = vl_2 + v_c + vb_2 + vr_2
             assert v2[0] <= realv_2 <= v2[1], realv_2
         else:
@@ -53,8 +70,12 @@ def simulate(dt, v0, v1, v2, vb_0, vb_1, vb_2, R, i_0, i_1, i_2, L):
         i_1 += real_dt * vl_1/L 
         i_2 += real_dt * vl_2/L 
         
-        if zeroed_port == 0: assert False
-        if zeroed_port == 1: assert False
+        if zeroed_port == 0:
+            i_0 = 0
+            i_2 = -i_1
+        if zeroed_port == 1:
+            i_1 = 0
+            i_2 = -i_0
         if zeroed_port == 2:
             i_1 = -i_0
             i_2 = 0
@@ -73,7 +94,7 @@ class MotorModel(object):
     
     mechanical_K_v = 920 / 60 * 2*math.pi # motor constant, radians/s/volt
     K_v = mechanical_K_v*CONV # electrical motor constant, electrical radians/s/volt
-    mechanical_I = .1*.1 # XXX guess # moment of inertia, kg m^2 = joule/(radian/s)^2
+    mechanical_I = 6e-3*.1**2 # XXX guess # moment of inertia, kg m^2 = joule/(radian/s)^2
     I = mechanical_I/CONV**2 # electrical moment of inertia, joule/(electrical radian/s)^2
     
     def __init__(self):
@@ -88,11 +109,11 @@ class MotorModel(object):
         
         tau = 0
         
-        tau += self.i_0 / self.K_v * math.sin(self.theta)
+        tau += self.i_0 / self.K_v * math.sin(self.theta) # XXX not sure if K_v has some constant factor
         tau += self.i_1 / self.K_v * math.sin(self.theta - 2*math.pi/3)
         i_2 = - self.i_0 - self.i_1 # i_0 + i_1 + i_2 = 0
         tau += i_2 / self.K_v * math.sin(self.theta - 2*math.pi*2/3)
-        tau += -1e-3 * self.omega #* abs(self.omega)
+        #tau += -1e-6 * self.omega * abs(self.omega)
         
         self.theta += dt * self.omega
         self.omega += dt * tau/self.I
@@ -106,23 +127,32 @@ class MotorModel(object):
 
 m = MotorModel()
 
-rate = 30
 vmax = 3.7*4
-dt = 1e-6
+sign = lambda x: 1 if x >= 0 else -1
 def controller():
-    return (
-        vmax*(.5+.5*math.sin(rate*t - 2*math.pi*0/3)),
-        vmax*(.5+.5*math.sin(rate*t - 2*math.pi*1/3)),
-        vmax*(.5+.5*math.sin(rate*t - 2*math.pi*2/3)),
+    #ang = 40*t**2
+    ang = m.theta
+    vs = (
+        vmax*(.5+.5*math.sin(ang - 2*math.pi*0/3)),
+        vmax*(.5+.5*math.sin(ang - 2*math.pi*1/3)),
+        vmax*(.5+.5*math.sin(ang - 2*math.pi*2/3)),
     )
+    if t * 10000 % 1 < 3/4:
+        return [0 if vs[i] == min(vs) else vmax if vs[i] == max(vs) else (0, vmax) for i in xrange(3)]
+    else:
+        return [vmax if vs[i] == min(vs) else 0 if vs[i] == max(vs) else (0, vmax) for i in xrange(3)]
 
+dt = 1e-5
+tmax = 1
+ts = []
 thetas = []
 omegas = []
 voltages = []
 currents = []
-for i in xrange(100000):
+for i in xrange(int(tmax//dt)):
     t = dt * i
-    if (i-1)//1000 != i//1000: print i
+    ts.append(t)
+    if (i-1)//1000 != i//1000: print t/tmax
     m.step(dt, *controller())
     thetas.append(m.theta % (2*math.pi))
     omegas.append(m.omega)
@@ -133,21 +163,21 @@ for i in xrange(100000):
 from matplotlib import pyplot
 
 ax1 = pyplot.subplot(4, 1, 1)
-ax1.plot(omegas)
+ax1.plot(ts, omegas)
 ax1.set_ylabel('Omega')
 
-ax1 = pyplot.subplot(4, 1, 2)
-ax1.plot(thetas)
+ax1 = pyplot.subplot(4, 1, 2, sharex=ax1)
+ax1.plot(ts, thetas)
 ax1.set_ylabel('Theta')
 
 ax2 = pyplot.subplot(4, 1, 3, sharex=ax1)
 for v in zip(*voltages):
-    ax2.plot(v)
+    ax2.plot(ts, v)
 ax2.set_ylabel('Voltages')
 
 ax2 = pyplot.subplot(4, 1, 4, sharex=ax1)
-for v in zip(*currents):
-    ax2.plot(v)
+for i in zip(*currents):
+    ax2.plot(ts, i)
 ax2.set_ylabel('Currents')
 
 pyplot.show()
