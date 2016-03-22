@@ -50,6 +50,13 @@ void send_byte(uint8_t x) {
 }
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
+const uint8_t type_byte = 
+#ifndef UPGRADER
+    0
+#else
+    4
+#endif
+;
 
 #define ESCAPE        0x34
 #define ESCAPE_START  0x01
@@ -73,7 +80,7 @@ void start_tx() {
     send_byte(0xff);
     send_byte(ESCAPE);
     send_byte(ESCAPE_START);
-    send_escaped_byte_and_crc(1);
+    send_escaped_byte_and_crc(type_byte + 1);
     send_escaped_byte_and_crc(*id_pointer);
 }
 void end_tx() {
@@ -90,7 +97,7 @@ volatile __xdata uint8_t rx_buf[255];
 volatile uint8_t rx_buf_pos;
 
 void handle_message() {
-    if(rx_buf[0] != 0) return;
+    if(rx_buf[0] != type_byte) return;
     if(rx_buf[1] != *id_pointer) return;
     
     if(rx_buf[2] == 0) { // read page

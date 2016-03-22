@@ -15,6 +15,7 @@ class Protocol(object):
         self._reader = self._reader_generator()
     
     def write_packet(self, data):
+        #print 'SEND', data.encode('hex')
         data = data + struct.pack('<I', binascii.crc32(data) & 0xffffffff)
         res = '\xff' + chr(ESCAPE) + chr(ESCAPE_START) + data.replace(chr(ESCAPE), chr(ESCAPE) + chr(ESCAPE_ESCAPE)) + chr(ESCAPE) + chr(ESCAPE_END)
         self._s.write(res)
@@ -46,9 +47,10 @@ class Protocol(object):
                         buf.append(ESCAPE)
                     elif byte == ESCAPE_END and in_message:
                         if binascii.crc32(''.join(map(chr, buf))) & 0xffffffff == 0x2144df1c:
+                            #print 'RECV', ''.join(map(chr, buf)).encode('hex')
                             yield buf[:-4]
                         else:
-                            print 'invalid crc', buf
+                            print 'invalid crc', ''.join(map(chr, buf)).encode('hex')
                         in_message = False
                     else:
                         print 'err1'

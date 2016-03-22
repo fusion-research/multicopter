@@ -2,6 +2,7 @@ from __future__ import division
 
 import struct
 import sys
+import os
 
 import serial
 import intelhex
@@ -14,7 +15,7 @@ ih = intelhex.IntelHex(sys.argv[1])
 id_ = int(sys.argv[2])
 
 s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
-b = bootloader.Bootloader2(s, id_)
+b = bootloader.Bootloader2(s, id_, upgrader_mode=os.path.basename(sys.argv[0]) == 'upgrade.py')
 p = protocol.Protocol(s)
 
 print 'resetting'

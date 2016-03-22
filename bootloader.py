@@ -5,18 +5,19 @@ import struct
 import protocol
 
 class Bootloader2(object):
-    def __init__(self, s, id_):
+    def __init__(self, s, id_, upgrader_mode=False):
         self._p = protocol.Protocol(s)
         self._id = id_
+        self._type_byte = 0 if not upgrader_mode else 4
     
     def _write_packet(self, payload):
-        self._p.write_packet(struct.pack('>BB', 0, self._id) + payload)
+        self._p.write_packet(struct.pack('>BB', self._type_byte, self._id) + payload)
     
     def _read_packet(self):
         while True:
             pkt = self._p.read_packet()
             #print pkt
-            if pkt[0] == 1 and pkt[1] == self._id:
+            if pkt[0] == self._type_byte+1 and pkt[1] == self._id:
                 return ''.join(map(chr, pkt[2:]))
     
     def read_page(self, page_number):
