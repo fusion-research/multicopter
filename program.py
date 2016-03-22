@@ -8,21 +8,20 @@ import serial
 import intelhex
 
 import bootloader
+from bootloader import PAGE_SIZE
 import protocol
 
 
 ih = intelhex.IntelHex(sys.argv[1])
 id_ = int(sys.argv[2])
 
-s = serial.Serial('/dev/ttyUSB0', 115200, timeout=1)
-b = bootloader.Bootloader2(s, id_, upgrader_mode=os.path.basename(sys.argv[0]) == 'upgrade.py')
-p = protocol.Protocol(s)
+prot = protocol.Protocol(serial.Serial('/dev/ttyUSB0', 115200, timeout=1))
+b = bootloader.Bootloader2(prot, id_, upgrader_mode=os.path.basename(sys.argv[0]) == 'upgrade.py')
+program_dev = protocol.Device(prot, 2, id_)
 
 print 'resetting'
 for i in xrange(10):
-    p.write_packet(struct.pack('>BBB', 2, id_, 0)) # tell user code to reset into bootloader
-
-PAGE_SIZE = 512
+    program_dev.write_packet(struct.pack('>B', 0)) # tell user code to reset into bootloader
 
 d = {a: ih[a] for a in ih.addresses()}
 pages = {a//PAGE_SIZE for a in d}

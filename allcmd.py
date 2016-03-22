@@ -14,6 +14,7 @@ p = protocol.Protocol(s)
 
 for i in xrange(200, 4096):
     print i
+    dev = protocol.Device(p, 2, id_)
     for id_ in [3]:
-        p.write_packet(struct.pack('<BBBH', 2, id_, 2, i))
+        dev.write_packet(struct.pack('<BH', 2, i))
     time.sleep(.01)
