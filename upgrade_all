@@ -1,0 +1,4 @@
+#!/bin/bash -xe
+
+for i in 0 1 2 3 4 5 ; do python program.py build/upgrader.hex $i ; done
+for i in 0 1 2 3 4 5 ; do python upgrade.py build/bootloader.hex $i ; done
