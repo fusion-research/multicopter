@@ -36,6 +36,21 @@ void ext_isr14() __interrupt 14;
 #define BpFET 2
 #define Adc_Ip 0
 
+void delay(uint8_t ticks) { // 1 tick = 4 cycles = 0.16 us. 0 means 256x 1 tick
+_asm
+    delayloop: djnz dpl, delayloop
+_endasm;
+}
+
+void longdelay(uint8_t ticks) { // 1 tick = ~1028 cycles = ~42 us. 0 means 256x 1 tick
+_asm
+    clr acc
+delayloop2:
+    djnz acc, delayloop2
+    djnz dpl, delayloop2
+_endasm;
+}
+
 uint8_t read_byte() {
     uint8_t res;
     while(!SCON0_RI);
@@ -123,6 +138,8 @@ void handle_message() {
         #endif
         for(i = 0; i < length; i++) {
             PSCTL = 0x01; // PSWE = 1, PSEE = 0
+            VDM0CN = 0x80; // VDMEN = 1; enable VDD monitor
+            RSTSRC = 0b00000010; // use VDD monitor as reset source
             FLKEY = 0xA5;
             FLKEY = 0xF1;
             *(uint8_t __xdata *)addr = rx_buf[6+i];
@@ -136,6 +153,8 @@ void handle_message() {
             if(rx_buf[3] >= 4) return;
         #endif
         PSCTL = 0x03; // PSWE = 1, PSEE = 1
+        VDM0CN = 0x80; // VDMEN = 1; enable VDD monitor
+        RSTSRC = 0b00000010; // use VDD monitor as reset source
         FLKEY = 0xA5;
         FLKEY = 0xF1;
         *(uint8_t __xdata *)(((uint16_t)rx_buf[3]) << 9) = 0;
@@ -174,6 +193,10 @@ int _sdcc_external_startup() {
     P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
     P1MDIN = ~(1 << Adc_Ip);
     P1SKIP = (1 << Adc_Ip);
+    
+    VDM0CN = 0x80; // VDMEN = 1; enable VDD monitor
+    longdelay(0); // 11 ms
+    RSTSRC = 0b00000010; // use VDD monitor as reset source
     
     XBR0 = 0x01; // enable uart
     XBR1 = 0xc0; // disable pullups, enable crossbar

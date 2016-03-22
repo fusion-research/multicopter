@@ -3,6 +3,7 @@ from __future__ import division
 import struct
 import sys
 import os
+import time
 
 import serial
 import intelhex
@@ -22,6 +23,8 @@ program_dev = protocol.Device(prot, 2, id_)
 print 'resetting'
 for i in xrange(10):
     program_dev.write_packet(struct.pack('>B', 0)) # tell user code to reset into bootloader
+
+time.sleep(.1) # wait for reset to complete
 
 d = {a: ih[a] for a in ih.addresses()}
 pages = {a//PAGE_SIZE for a in d}
