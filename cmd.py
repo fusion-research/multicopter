@@ -13,11 +13,11 @@ id_ = int(sys.argv[1])
 
 p = protocol.Protocol(s)
 
-P = 1
-I = 5
+P = 21
+I = 35
 D = 0
 
-SETPOINT = 300
+SETPOINT = 100
 
 error_integral = 0
 
@@ -31,16 +31,18 @@ def stat():
         if pkt[0] == 3 and pkt[1] == id_ and len(pkt) == 8:
             revs, time_ = struct.unpack('<HI', ''.join(map(chr, pkt[2:])))
             if last_revs is not None:
-                drevs = (revs - last_revs) % 2**16 / 6
+                drevs = (revs - last_revs) % 2**16 / 6 / 7
                 dt = (time_ - last_time) % 2**32 / 24.5e6
                 speed = drevs/dt
                 error = SETPOINT - speed
-                error_integral += error * dt
-                output = P * (SETPOINT - speed) + I * error_integral
-                print 'STAT', drevs*6, drevs/dt, error_integral, output
-                if not (0 <= output <= 2000):
-                    output = 0
-                p.write_packet(struct.pack('<BBBH', 2, id_, 2, int(round(output))))
+                error_integral += I * (error * dt)
+                output = P * (SETPOINT - speed) + error_integral
+                output = int(round(output))
+                if error_integral > 2000: error_integral = 2000
+                if output > 2000: output = 2000
+                if output < 200: output = 200
+                print 'STAT', drevs*6*7, drevs/dt, error_integral, output
+                p.write_packet(struct.pack('<BBBH', 2, id_, 2, output))
             last_revs = revs
             last_time = time_
             break
@@ -52,6 +54,11 @@ def stat():
     time.sleep(.01)'''
 
 while p.read_packet() is not None: pass
+
+for i in xrange(200, 300):
+    print i
+    p.write_packet(struct.pack('<BBBH', 2, id_, 2, i))
+    time.sleep(.01)
 
 while True:
     stat()
