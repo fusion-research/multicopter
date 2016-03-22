@@ -64,13 +64,13 @@ void switch_power_off() {
     CpFET_off;
 }
 
-void delay(uint8_t ticks) { // 1 tick = 4 cycles = 0.16 us. 0 means 256x 1 tick
+void delay(uint8_t ticks) {
 _asm
     delayloop: djnz dpl, delayloop
 _endasm;
 }
 
-void longdelay(uint8_t ticks) { // 1 tick = ~1028 cycles = ~42 us. 0 means 256x 1 tick
+void longdelay(uint8_t ticks) {
 _asm
     clr acc
 delayloop2:
