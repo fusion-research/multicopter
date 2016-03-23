@@ -265,76 +265,76 @@ void timer2_isr() __interrupt PCA0_IRQn {
             }
             my_off_time = 2500 - my_on_time;
             Set_Comp_Phase_C;
+            ApFET_on;
             for(f = 0; f < count; f++) {
-                ApFET_on;
                 BnFET_on;
                 DELAY(2, my_on_time)
                 res = CPT0CN;
-                ApFET_off;
                 BnFET_off;
                 DELAY(3, my_off_time)
                 if((res & 0x40)) { break; }
             }
+            ApFET_off;
             revs++;
             Set_Comp_Phase_A;
+            CpFET_on;
             for(f = 0; f < count; f++) {
                 BnFET_on;
-                CpFET_on;
                 DELAY(4, my_on_time)
                 res = CPT0CN;
                 BnFET_off;
-                CpFET_off;
                 DELAY(5, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
+            CpFET_off;
             revs++;
             Set_Comp_Phase_B;
+            CpFET_on;
             for(f = 0; f < count; f++) {
                 AnFET_on;
-                CpFET_on;
                 DELAY(6, my_on_time)
                 res = CPT0CN;
                 AnFET_off;
-                CpFET_off;
                 DELAY(7, my_off_time)
                 if((res & 0x40)) { break; }
             }
+            CpFET_off;
             revs++;
             Set_Comp_Phase_C;
+            BpFET_on;
             for(f = 0; f < count; f++) {
                 AnFET_on;
-                BpFET_on;
                 DELAY(8, my_on_time)
                 res = CPT0CN;
                 AnFET_off;
-                BpFET_off;
                 DELAY(9, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
+            BpFET_off;
             revs++;
             Set_Comp_Phase_A;
+            BpFET_on;
             for(f = 0; f < count; f++) {
-                BpFET_on;
                 CnFET_on;
                 DELAY(10, my_on_time)
                 res = CPT0CN;
-                BpFET_off;
                 CnFET_off;
                 DELAY(11, my_off_time)
                 if((res & 0x40)) { break; }
             }
+            BpFET_off;
             revs++;
             Set_Comp_Phase_B;
+            ApFET_on;
             for(f = 0; f < count; f++) {
-                ApFET_on;
                 CnFET_on;
                 DELAY(12, my_on_time)
                 res = CPT0CN;
-                ApFET_off;
                 CnFET_off;
                 DELAY(13, my_off_time)
                 if(!(res & 0x40)) { break; }
             }
+            ApFET_off;
             revs++;
         }
     }
