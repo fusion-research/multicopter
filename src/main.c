@@ -83,20 +83,24 @@ _endasm;
 volatile uint16_t on_time = 0;
 volatile uint16_t revs = 0;
 
-volatile __xdata uint8_t tx_buf[256];
+volatile __xdata uint8_t tx_buf[20];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
+
+#define INCREMENTED_MOD(x, m) ((x == m-1) ? 0 : x+1)
 
 volatile bit sending = 0;
 
 void send_byte(uint8_t x) {
-    if(tx_buf_write_pos + 1 == tx_buf_read_pos) return; // buffer full
+    if(INCREMENTED_MOD(tx_buf_write_pos, sizeof(tx_buf)) == tx_buf_read_pos) return; // buffer full
     
-    tx_buf[tx_buf_write_pos++] = x;
+    tx_buf[tx_buf_write_pos] = x;
+    tx_buf_write_pos = INCREMENTED_MOD(tx_buf_write_pos, sizeof(tx_buf));
     
     if(!sending && tx_buf_read_pos != tx_buf_write_pos) {
         P0MDOUT = (1 << Tx_Out);
-        SBUF0 = tx_buf[tx_buf_read_pos++];
+        SBUF0 = tx_buf[tx_buf_read_pos];
+        tx_buf_read_pos = INCREMENTED_MOD(tx_buf_read_pos, sizeof(tx_buf));
         sending = 1;
     }
 }
@@ -120,7 +124,7 @@ void send_escaped_byte_and_crc(uint8_t x) {
 }
 
 volatile bit in_escape = 0, in_message = 0;
-volatile __xdata uint8_t rx_buf[255];
+volatile __xdata uint8_t rx_buf[20];
 volatile uint8_t rx_buf_pos;
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
@@ -236,7 +240,8 @@ void uart0_isr() __interrupt UART0_IRQn {
         SCON0_TI = 0;
         // sending is 1
         if(tx_buf_read_pos != tx_buf_write_pos) {
-            SBUF0 = tx_buf[tx_buf_read_pos++];
+            SBUF0 = tx_buf[tx_buf_read_pos];
+            tx_buf_read_pos = INCREMENTED_MOD(tx_buf_read_pos, sizeof(tx_buf));
             sending = 1;
         } else {
             sending = 0;
