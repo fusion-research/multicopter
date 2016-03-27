@@ -1,6 +1,6 @@
 all: build/fw.hex build/bootloader.hex build/bootloader_0.hex build/bootloader_1.hex  build/bootloader_2.hex build/bootloader_3.hex build/bootloader_4.hex build/bootloader_5.hex build/upgrader.hex
 
-CC = sdcc -mmcs51 --stack-auto --code-loc 0x800 --code-size 0x1400 --xram-size 0x0200 --xram-loc 0x0000 -Iinc
+CC = sdcc -mmcs51 --stack-auto --code-loc 0x800 --code-size 0x1400 --xram-size 0x0200 --xram-loc 0x0000 -Iinc --nojtbound
 BL_CC = sdcc -mmcs51 --code-loc 0 --code-size 0x800 --xram-size 0x0200 --xram-loc 0x0000 -Iinc
 AS = sdas8051 -logs
 

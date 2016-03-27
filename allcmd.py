@@ -12,12 +12,12 @@ s = serial.Serial('/dev/serial/by-id/pci-FTDI_FT232R_USB_UART_AH034I96-if00-port
 
 p = protocol.Protocol(s)
 
-for i in xrange(200, 500+1, 10):
+for i in xrange(100, 1000+1):
     print i
     for id_ in [3]: #xrange(6):
         dev = protocol.Device(p, 2, id_)
         dev.write_packet(struct.pack('<BH', 2, i))
-    time.sleep(.01)
+    time.sleep(.04)
 
 time.sleep(3)
 

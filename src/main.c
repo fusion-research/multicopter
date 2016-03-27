@@ -249,18 +249,18 @@ uint8_t state = 0;
 uint8_t res;
 uint8_t commutation_step;
 #define DELAY(n, length) PCA0CP0 = PCA0CP0 + (length); state = n; return; case n:
-void timer2_isr() __interrupt PCA0_IRQn {
+void pca0_isr() __interrupt PCA0_IRQn {
     PCA0CN_CCF0 = 0;
     
     switch(state) { case 0:
         while(true) {
             count = 255;
             my_on_time = on_time;
-            if(my_on_time < 200 || my_on_time > 2000) {
+            if(my_on_time < 100 || my_on_time > 1000) {
                 DELAY(1, 2450) // .1 ms
                 continue;
             }
-            my_off_time = 2500 - my_on_time;
+            my_off_time = 1225 - my_on_time;
             
             for(commutation_step = 0; commutation_step < 6; commutation_step++) {
                 CPT0MX = commutation_comp[commutation_step];
