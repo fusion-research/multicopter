@@ -22,26 +22,25 @@
 #define BpFET 2
 #define Adc_Ip 0
 
-#define CAT(a, ...) PRIMITIVE_CAT(a, __VA_ARGS__)
-#define PRIMITIVE_CAT(a, ...) a ## __VA_ARGS__
+#define P1_ALL_OFF ((1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip))
 
-#define AnFET_on CAT(P1_B, AnFET) = 0
-#define BnFET_on CAT(P1_B, BnFET) = 0
-#define CnFET_on CAT(P1_B, CnFET) = 0
-#define ApFET_on CAT(P1_B, ApFET) = 1
-#define BpFET_on CAT(P1_B, BpFET) = 1
-#define CpFET_on CAT(P1_B, CpFET) = 1
-
-#define AnFET_off CAT(P1_B, AnFET) = 1
-#define BnFET_off CAT(P1_B, BnFET) = 1
-#define CnFET_off CAT(P1_B, CnFET) = 1
-#define ApFET_off CAT(P1_B, ApFET) = 0
-#define BpFET_off CAT(P1_B, BpFET) = 0
-#define CpFET_off CAT(P1_B, CpFET) = 0
-
-#define Set_Comp_Phase_A CPT0MX = 0x11
-#define Set_Comp_Phase_B CPT0MX = 0x13
-#define Set_Comp_Phase_C CPT0MX = 0x10
+const uint8_t commutation_pattern[6] = { // turns on one of pFETs
+    P1_ALL_OFF + (1 << ApFET), // Ap
+    P1_ALL_OFF + (1 << CpFET), // Cp
+    P1_ALL_OFF + (1 << CpFET), // Cp
+    P1_ALL_OFF + (1 << BpFET), // Bp
+    P1_ALL_OFF + (1 << BpFET), // Bp
+    P1_ALL_OFF + (1 << ApFET)  // Ap
+};
+const uint8_t commutation_pattern2[6] = { // turns on one of nFETs
+    P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
+    P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
+    P1_ALL_OFF + (1 << CpFET) - (1 << AnFET), // An
+    P1_ALL_OFF + (1 << BpFET) - (1 << AnFET), // An
+    P1_ALL_OFF + (1 << BpFET) - (1 << CnFET), // Cn
+    P1_ALL_OFF + (1 << ApFET) - (1 << CnFET)  // Cn
+};
+const uint8_t commutation_comp[6] = { 0x10, 0x11, 0x13, 0x10, 0x11, 0x13 }; // C A B C A B
 
 void enable_interrupts() {
 _asm
@@ -53,15 +52,6 @@ _asm
      clr _IE_EA
      clr _IE_EA
 _endasm;
-}
-
-void switch_power_off() {
-    AnFET_off;
-    CnFET_off;
-    BnFET_off;
-    ApFET_off;
-    BpFET_off;
-    CpFET_off;
 }
 
 volatile uint16_t on_time = 0;
@@ -257,6 +247,7 @@ uint8_t count = 255;
 uint8_t f;
 uint8_t state = 0;
 uint8_t res;
+uint8_t commutation_step;
 #define DELAY(n, length) PCA0CP0 = PCA0 + (length); state = n; return; case n:
 void timer2_isr() __interrupt PCA0_IRQn {
     PCA0CN_CCF0 = 0;
@@ -270,78 +261,21 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 continue;
             }
             my_off_time = 2500 - my_on_time;
-            Set_Comp_Phase_C;
-            ApFET_on;
-            for(f = 0; f < count; f++) {
-                BnFET_on;
-                DELAY(2, my_on_time)
-                res = CPT0CN;
-                BnFET_off;
-                DELAY(3, my_off_time)
-                if((res & 0x40)) { break; }
+            
+            for(commutation_step = 0; commutation_step < 6; commutation_step++) {
+                CPT0MX = commutation_comp[commutation_step];
+                P1 = commutation_pattern[commutation_step];
+                for(f = 0; f < count; f++) {
+                    P1 = commutation_pattern2[commutation_step];
+                    DELAY(2, my_on_time)
+                    res = CPT0CN;
+                    P1 = commutation_pattern[commutation_step];
+                    DELAY(3, my_off_time)
+                    if(((res & 0x40) >> 6) ^ (commutation_step & 1)) { break; }
+                }
+                P1 = P1_ALL_OFF;
+                revs++;
             }
-            ApFET_off;
-            revs++;
-            Set_Comp_Phase_A;
-            CpFET_on;
-            for(f = 0; f < count; f++) {
-                BnFET_on;
-                DELAY(4, my_on_time)
-                res = CPT0CN;
-                BnFET_off;
-                DELAY(5, my_off_time)
-                if(!(res & 0x40)) { break; }
-            }
-            CpFET_off;
-            revs++;
-            Set_Comp_Phase_B;
-            CpFET_on;
-            for(f = 0; f < count; f++) {
-                AnFET_on;
-                DELAY(6, my_on_time)
-                res = CPT0CN;
-                AnFET_off;
-                DELAY(7, my_off_time)
-                if((res & 0x40)) { break; }
-            }
-            CpFET_off;
-            revs++;
-            Set_Comp_Phase_C;
-            BpFET_on;
-            for(f = 0; f < count; f++) {
-                AnFET_on;
-                DELAY(8, my_on_time)
-                res = CPT0CN;
-                AnFET_off;
-                DELAY(9, my_off_time)
-                if(!(res & 0x40)) { break; }
-            }
-            BpFET_off;
-            revs++;
-            Set_Comp_Phase_A;
-            BpFET_on;
-            for(f = 0; f < count; f++) {
-                CnFET_on;
-                DELAY(10, my_on_time)
-                res = CPT0CN;
-                CnFET_off;
-                DELAY(11, my_off_time)
-                if((res & 0x40)) { break; }
-            }
-            BpFET_off;
-            revs++;
-            Set_Comp_Phase_B;
-            ApFET_on;
-            for(f = 0; f < count; f++) {
-                CnFET_on;
-                DELAY(12, my_on_time)
-                res = CPT0CN;
-                CnFET_off;
-                DELAY(13, my_off_time)
-                if(!(res & 0x40)) { break; }
-            }
-            ApFET_off;
-            revs++;
         }
     }
 }
@@ -356,7 +290,7 @@ void main() {
     P0MDIN = ~((1 << Mux_A)+(1 << Mux_B)+(1 << Mux_C)+(1 << Comp_Com));
     P0SKIP = ~((1 << Rcp_In)+(1 << Tx_Out));
     
-    P1 = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip);
+    P1 = P1_ALL_OFF;
     P1MDOUT = (1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << ApFET)+(1 << BpFET)+(1 << CpFET);
     P1MDIN = ~(1 << Adc_Ip);
     P1SKIP = (1 << Adc_Ip);
@@ -372,8 +306,6 @@ void main() {
     TCON_TR1 = 1;
     SCON0 = 0x00;
     
-    switch_power_off();
-    
     CPT0CN = 0x80; // Comparator enabled, no hysteresis
     CPT0MD = 0x00; // Comparator response time 100ns
     
@@ -382,7 +314,7 @@ void main() {
     IE_ES0 = 1;
     
     REF0CN = 0b1110;
-    ADC0CF = (11 << 3) | 0b100;
+    ADC0CF = (8 << 3) | 0b100;
     ADC0CN_ADEN = 1;
     AMX0N = 0b00011;// N = P0.3 = Comp_Com
     //AMX0N = 0b10001;
