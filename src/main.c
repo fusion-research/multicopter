@@ -248,7 +248,7 @@ uint8_t f;
 uint8_t state = 0;
 uint8_t res;
 uint8_t commutation_step;
-#define DELAY(n, length) PCA0CP0 = PCA0 + (length); state = n; return; case n:
+#define DELAY(n, length) PCA0CP0 = PCA0CP0 + (length); state = n; return; case n:
 void timer2_isr() __interrupt PCA0_IRQn {
     PCA0CN_CCF0 = 0;
     
@@ -266,11 +266,11 @@ void timer2_isr() __interrupt PCA0_IRQn {
                 CPT0MX = commutation_comp[commutation_step];
                 P1 = commutation_pattern[commutation_step];
                 for(f = 0; f < count; f++) {
+                    DELAY(3, my_off_time)
                     P1 = commutation_pattern2[commutation_step];
                     DELAY(2, my_on_time)
                     res = CPT0CN;
                     P1 = commutation_pattern[commutation_step];
-                    DELAY(3, my_off_time)
                     if(((res & 0x40) >> 6) ^ (commutation_step & 1)) { break; }
                 }
                 P1 = P1_ALL_OFF;
