@@ -64,26 +64,10 @@ void switch_power_off() {
     CpFET_off;
 }
 
-void delay(uint8_t ticks) { // 1 tick = 4 cycles = 0.16 us. 0 means 256x 1 tick
-_asm
-    delayloop: djnz dpl, delayloop
-_endasm;
-}
-
-void longdelay(uint8_t ticks) { // 1 tick = ~1028 cycles = ~42 us. 0 means 256x 1 tick
-_asm
-    clr acc
-delayloop2:
-    djnz acc, delayloop2
-    djnz dpl, delayloop2
-_endasm;
-}
-
-
 volatile uint16_t on_time = 0;
 volatile uint16_t revs = 0;
 
-volatile __xdata uint8_t tx_buf[20];
+volatile uint8_t tx_buf[20];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
 
@@ -124,7 +108,7 @@ void send_escaped_byte_and_crc(uint8_t x) {
 }
 
 volatile bit in_escape = 0, in_message = 0;
-volatile __xdata uint8_t rx_buf[20];
+volatile uint8_t rx_buf[20];
 volatile uint8_t rx_buf_pos;
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
@@ -155,6 +139,9 @@ uint32_t read_timer0() {
     }
     return res;
 }
+
+volatile uint8_t __xdata capture_buf[512];
+volatile uint16_t capture_pos = sizeof(capture_buf);
 
 void handle_message() {
     if(rx_buf_pos >= 3 && rx_buf[0] == 2 && rx_buf[1] == *id_pointer) {
@@ -188,6 +175,20 @@ void handle_message() {
         } else if(rx_buf[2] == 2) { // set power
             if(rx_buf_pos != 5) return;
             on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
+        } else if(rx_buf[2] == 3) { // start capture
+            capture_pos = 0;
+        } else if(rx_buf[2] == 4) { // read
+            send_byte(0xff);
+            crc_init();
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_START);
+            send_escaped_byte_and_crc(3);
+            send_escaped_byte_and_crc(*id_pointer);
+            send_escaped_byte_and_crc(capture_buf[((uint16_t)(rx_buf[3]) << 8) | rx_buf[4]]);
+            crc_finalize();
+            { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
+            send_byte(ESCAPE);
+            send_byte(ESCAPE_END);
         }
     }
 }
@@ -380,6 +381,13 @@ void main() {
     SCON0_REN = 1;
     IE_ES0 = 1;
     
+    REF0CN = 0b1110;
+    ADC0CF = (11 << 3) | 0b100;
+    ADC0CN_ADEN = 1;
+    AMX0N = 0b00011;// N = P0.3 = Comp_Com
+    //AMX0N = 0b10001;
+    AMX0P = 0b00010; // P = P0.2 = Mux_A
+    
     // start timebase
     TMOD = (TMOD & ~0x0F) | 0x01;
     CKCON |= 0x04; // system clock
@@ -420,6 +428,12 @@ void main() {
                     timer0_overflows++;
                 }
             }
+        }
+        if(!ADC0CN_ADBUSY) {
+            if(capture_pos < sizeof(capture_buf)) {
+                capture_buf[capture_pos++] = ADC0H;
+            }
+            ADC0CN_ADBUSY = 1;
         }
     }
 }
