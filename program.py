@@ -16,7 +16,7 @@ import protocol
 ih = intelhex.IntelHex(sys.argv[1])
 id_ = int(sys.argv[2])
 
-prot = protocol.Protocol(serial.Serial('/dev/ttyUSB0', 115200, timeout=1))
+prot = protocol.Protocol(serial.Serial('/dev/serial/by-id/pci-FTDI_FT232R_USB_UART_AH034I96-if00-port0', 115200, timeout=1))
 b = bootloader.Bootloader2(prot, id_, upgrader_mode=os.path.basename(sys.argv[0]) == 'upgrade.py')
 program_dev = protocol.Device(prot, 2, id_)
 

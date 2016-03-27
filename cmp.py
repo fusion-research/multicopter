@@ -14,7 +14,7 @@ import protocol
 id_ = int(sys.argv[1])
 id2_ = int(sys.argv[2])
 
-prot = protocol.Protocol(serial.Serial('/dev/ttyUSB0', 115200, timeout=1))
+prot = protocol.Protocol(serial.Serial('/dev/serial/by-id/pci-FTDI_FT232R_USB_UART_AH034I96-if00-port0', 115200, timeout=1))
 b = bootloader.Bootloader2(prot, id_)
 b2 = bootloader.Bootloader2(prot, id2_)
 

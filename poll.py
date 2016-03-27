@@ -8,7 +8,7 @@ import serial
 
 import protocol
 
-s = serial.Serial('/dev/ttyUSB0', 115200, timeout=.01)
+s = serial.Serial('/dev/serial/by-id/pci-FTDI_FT232R_USB_UART_AH034I96-if00-port0', 115200, timeout=.01)
 
 p = protocol.Protocol(s)
 reader = p.read_packet()
