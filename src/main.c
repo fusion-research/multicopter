@@ -61,7 +61,7 @@ volatile uint8_t tx_buf[20];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
 
-#define INCREMENTED_MOD(x, m) ((x == m-1) ? 0 : x+1)
+#define INCREMENTED_MOD(x, m) (((x) == (m)-1) ? 0 : (x)+1)
 
 volatile bit sending = 0;
 
