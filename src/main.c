@@ -183,49 +183,53 @@ void handle_message() {
     }
 }
 
+void handle_byte(uint8_t c) {
+    if(c == ESCAPE) {
+        if(in_escape) {
+            in_message = 0; // shouldn't happen, reset
+        }
+        in_escape = 1;
+    } else if(in_escape) {
+        in_escape = 0;
+        if(c == ESCAPE_START) {
+            in_message = 1;
+            rx_buf_pos = 0;
+            crc_init();
+        } else if(c == ESCAPE_ESCAPE && in_message) {
+            if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                in_message = 0;
+            }
+            rx_buf[rx_buf_pos++] = ESCAPE;
+            crc_update(ESCAPE);
+        } else if(c == ESCAPE_END && in_message) {
+            // do something with rx_buf and rx_buf_pos
+            crc_finalize();
+            if(rx_buf_pos >= 4 && crc_good()) {
+                rx_buf_pos -= 4;
+                handle_message();
+            }
+            in_message = 0;
+        } else {
+            in_message = 0; // shouldn't happen, reset
+        }
+    } else {
+        if(in_message) {
+            if(rx_buf_pos == sizeof(rx_buf)) { // overrun
+                in_message = 0;
+            }
+            rx_buf[rx_buf_pos++] = c;
+            crc_update(c);
+        } else {
+            // shouldn't happen, ignore
+        }
+    }
+}
+
 void uart0_isr() __interrupt UART0_IRQn {
     if(SCON0_RI) {
         uint8_t c = SBUF0;
         SCON0_RI = 0;
-        if(c == ESCAPE) {
-            if(in_escape) {
-                in_message = 0; // shouldn't happen, reset
-            }
-            in_escape = 1;
-        } else if(in_escape) {
-            in_escape = 0;
-            if(c == ESCAPE_START) {
-                in_message = 1;
-                rx_buf_pos = 0;
-                crc_init();
-            } else if(c == ESCAPE_ESCAPE && in_message) {
-                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
-                    in_message = 0;
-                }
-                rx_buf[rx_buf_pos++] = ESCAPE;
-                crc_update(ESCAPE);
-            } else if(c == ESCAPE_END && in_message) {
-                // do something with rx_buf and rx_buf_pos
-                crc_finalize();
-                if(rx_buf_pos >= 4 && crc_good()) {
-                    rx_buf_pos -= 4;
-                    handle_message();
-                }
-                in_message = 0;
-            } else {
-                in_message = 0; // shouldn't happen, reset
-            }
-        } else {
-            if(in_message) {
-                if(rx_buf_pos == sizeof(rx_buf)) { // overrun
-                    in_message = 0;
-                }
-                rx_buf[rx_buf_pos++] = c;
-                crc_update(c);
-            } else {
-                // shouldn't happen, ignore
-            }
-        }
+        handle_byte(c);
     }
     if(SCON0_TI) {
         SCON0_TI = 0;
