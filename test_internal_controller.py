@@ -22,9 +22,20 @@ for i in xrange(100, 250):
 
 dev.write_packet(struct.pack('<BH', 5, 5000))
 
-while True:
-    dev.write_packet(struct.pack('<B', 1))
-    x = dev.read_packet()
-    if x is None: continue
-    revs, controller_on_time, desired_revs_16, t, controller_integral = struct.unpack('<HHIIi', x)
-    print revs, controller_on_time, desired_revs_16 >> 16, t, controller_integral
+if 0:
+    while True:
+        dev.write_packet(struct.pack('<B', 1))
+        x = dev.read_packet()
+        if x is None: continue
+        revs, controller_on_time, controller_speed_measured, t, controller_integral = struct.unpack('<HHHIi', x)
+        print revs, controller_on_time, controller_speed_measured, t, controller_integral
+else:
+    while True:
+        import math
+        time.sleep(.01)
+        dev.write_packet(struct.pack('<BH', 5, 1750 + 500 * math.sin(6.28*time.time())))
+        dev.write_packet(struct.pack('<B', 1))
+        x = dev.read_packet()
+        if x is None: continue
+        revs, controller_on_time, controller_speed_measured, t, controller_integral = struct.unpack('<HHHIi', x)
+        print revs, controller_on_time, controller_speed_measured, t, controller_integral

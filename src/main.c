@@ -59,8 +59,8 @@ volatile uint16_t revs = 0;
 
 volatile bit controller_active = 0;
 volatile uint16_t controller_speed; // revs/s
-volatile uint32_t controller_desired_revs; // 16.16
 volatile int32_t controller_integral; // 16.16 on_time units
+volatile uint16_t controller_speed_measured;
 
 volatile uint8_t tx_buf[30];
 volatile uint8_t tx_buf_write_pos = 0;
@@ -161,10 +161,8 @@ void handle_message() {
             send_escaped_byte_and_crc(my_revs>>8);
             send_escaped_byte_and_crc(local_on_time&0xff);
             send_escaped_byte_and_crc(local_on_time>>8);
-            send_escaped_byte_and_crc((controller_desired_revs >>  0) & 0xff);
-            send_escaped_byte_and_crc((controller_desired_revs >>  8) & 0xff);
-            send_escaped_byte_and_crc((controller_desired_revs >> 16) & 0xff);
-            send_escaped_byte_and_crc((controller_desired_revs >> 24) & 0xff);
+            send_escaped_byte_and_crc((controller_speed_measured >>  0) & 0xff);
+            send_escaped_byte_and_crc((controller_speed_measured >>  8) & 0xff);
             send_escaped_byte_and_crc((approximate_time >>  0) & 0xff);
             send_escaped_byte_and_crc((approximate_time >>  8) & 0xff);
             send_escaped_byte_and_crc((approximate_time >> 16) & 0xff);
@@ -201,14 +199,7 @@ void handle_message() {
             if(rx_buf_pos != 5) return;
             controller_speed = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
             if(!controller_active) {
-                {
-                    uint16_t my_revs;
-                    __critical {
-                        my_revs = revs;
-                    }
-                    controller_desired_revs = (uint32_t)my_revs << 16;
-                }
-                controller_integral = 0;
+                controller_integral = (int32_t)on_time << 16;
                 controller_active = 1;
             }
         }
@@ -318,8 +309,8 @@ void pca0_isr() __interrupt PCA0_IRQn {
 
 uint32_t last_controller_time;
 void main() {
-    int16_t last_err;
-    bit last_err_present = 0;
+    uint16_t last_revs;
+    bit last_revs_present = 0;
     
     PCA0MD &= ~0x40; // disable watchdog
     
@@ -410,9 +401,6 @@ void main() {
         }
         while(read_timer0() - last_controller_time >= 95703) { // run at 256 Hz
             last_controller_time += 95703;
-            __critical {
-                controller_desired_revs += (uint32_t)controller_speed << 8;
-            }
             if(!controller_active) continue;
             {
                 uint16_t my_revs;
@@ -420,14 +408,17 @@ void main() {
                     my_revs = revs;
                 }
                 {
-                    int16_t err = (uint16_t)(controller_desired_revs >> 16) - my_revs;
-                    int16_t d = last_err_present ? err - last_err : 0;
-                    int16_t controller_on_time = 250 + (d << 1) + (err >> 1) ;//+ (controller_integral >> 10);
-                    last_err = err;
-                    last_err_present = 1;
-                    if(controller_on_time < 99) controller_on_time = 99;
+                    int16_t est = last_revs_present ? my_revs - last_revs : 0; // revs/s / 256
+                    int16_t err = (int16_t)controller_speed - ((int16_t)est << 8); // revs/s
+                    int16_t controller_on_time = (controller_integral >> 16) + (err >> 4);
+                    last_revs = my_revs;
+                    last_revs_present = 1;
+                    controller_speed_measured = est << 8;
+                    if(controller_on_time < 100) controller_on_time = 100;
                     if(controller_on_time > 1000) controller_on_time = 1000;
-                    controller_integral += err;
+                    controller_integral += (int32_t)err << 10;
+                    if(controller_integral < (int32_t)100<<16) controller_integral = (int32_t)100<<16;
+                    if(controller_integral > (int32_t)1000<<16) controller_integral = (int32_t)1000<<16;
                     __critical {
                         if(controller_active) {
                             on_time = controller_on_time;
