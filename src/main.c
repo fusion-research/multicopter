@@ -57,7 +57,12 @@ _endasm;
 volatile uint16_t on_time = 0;
 volatile uint16_t revs = 0;
 
-volatile uint8_t tx_buf[20];
+volatile bit controller_active = 0;
+volatile uint16_t controller_speed; // revs/s
+volatile uint32_t controller_desired_revs; // 16.16
+volatile int32_t controller_integral; // 16.16 on_time units
+
+volatile uint8_t tx_buf[30];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
 
@@ -108,27 +113,27 @@ uint16_t timer0_overflows = 0;
 /*void timer0_isr() __interrupt TIMER0_IRQn {
     timer0_overflows++;
 }*/
-uint32_t read_timer0() {
+uint32_t read_timer0() { // can't be called from interrupts
     uint32_t res;
-    __critical {
-        while(true) {
-            if(TCON_TF0) {
-                TCON_TF0 = 0;
-                timer0_overflows++;
-            }
-            {
-                uint8_t hi = TH0;
-                uint8_t lo = TL0;
-                uint8_t hi2 = TH0;
-                if(hi2 != hi) continue;
-                if(TCON_TF0) continue;
-                res = (((uint32_t)timer0_overflows) << 16) | (((uint16_t)hi) << 8) | lo;
-                break;
-            }
+    bit done = 0;
+    while(true) {
+        if(TCON_TF0) {
+            TCON_TF0 = 0;
+            timer0_overflows++;
+        }
+        {
+            uint8_t hi = TH0;
+            uint8_t lo = TL0;
+            uint8_t hi2 = TH0;
+            if(hi2 != hi) continue;
+            if(TCON_TF0) continue;
+            res = (((uint32_t)timer0_overflows) << 16) | (((uint16_t)hi) << 8) | lo;
+            break;
         }
     }
     return res;
 }
+uint32_t approximate_time;
 
 volatile uint8_t __xdata capture_buf[512];
 volatile uint16_t capture_pos = sizeof(capture_buf);
@@ -140,10 +145,10 @@ void handle_message() {
             RSTSRC = 0x10; // reset into bootloader
             while(1);
         } else if(rx_buf[2] == 1) { // get status
-            uint32_t t = read_timer0();
-            uint16_t my_revs;
+            uint16_t my_revs, local_on_time;
             __critical {
                 my_revs = revs;
+                local_on_time = on_time;
             }
             if(rx_buf_pos != 3) return;
             send_byte(0xff);
@@ -154,17 +159,30 @@ void handle_message() {
             send_escaped_byte_and_crc(*id_pointer);
             send_escaped_byte_and_crc(my_revs&0xff);
             send_escaped_byte_and_crc(my_revs>>8);
-            send_escaped_byte_and_crc((t >>  0) & 0xff);
-            send_escaped_byte_and_crc((t >>  8) & 0xff);
-            send_escaped_byte_and_crc((t >> 16) & 0xff);
-            send_escaped_byte_and_crc((t >> 24) & 0xff);
+            send_escaped_byte_and_crc(local_on_time&0xff);
+            send_escaped_byte_and_crc(local_on_time>>8);
+            send_escaped_byte_and_crc((controller_desired_revs >>  0) & 0xff);
+            send_escaped_byte_and_crc((controller_desired_revs >>  8) & 0xff);
+            send_escaped_byte_and_crc((controller_desired_revs >> 16) & 0xff);
+            send_escaped_byte_and_crc((controller_desired_revs >> 24) & 0xff);
+            send_escaped_byte_and_crc((approximate_time >>  0) & 0xff);
+            send_escaped_byte_and_crc((approximate_time >>  8) & 0xff);
+            send_escaped_byte_and_crc((approximate_time >> 16) & 0xff);
+            send_escaped_byte_and_crc((approximate_time >> 24) & 0xff);
+            send_escaped_byte_and_crc((controller_integral >>  0) & 0xff);
+            send_escaped_byte_and_crc((controller_integral >>  8) & 0xff);
+            send_escaped_byte_and_crc((controller_integral >> 16) & 0xff);
+            send_escaped_byte_and_crc((controller_integral >> 24) & 0xff);
             crc_finalize();
             { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
             send_byte(ESCAPE);
             send_byte(ESCAPE_END);
         } else if(rx_buf[2] == 2) { // set power
             if(rx_buf_pos != 5) return;
-            on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
+            __critical {
+                on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
+            }
+            controller_active = 0;
         } else if(rx_buf[2] == 3) { // start capture
             capture_pos = 0;
         } else if(rx_buf[2] == 4) { // read
@@ -179,6 +197,20 @@ void handle_message() {
             { uint8_t i; for(i = 0; i < 4; i++) send_escaped_byte(crc.as_4_uint8[i]); }
             send_byte(ESCAPE);
             send_byte(ESCAPE_END);
+        } else if(rx_buf[2] == 5) { // set speed in rev/s 8.8
+            if(rx_buf_pos != 5) return;
+            controller_speed = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
+            if(!controller_active) {
+                {
+                    uint16_t my_revs;
+                    __critical {
+                        my_revs = revs;
+                    }
+                    controller_desired_revs = (uint32_t)my_revs << 16;
+                }
+                controller_integral = 0;
+                controller_active = 1;
+            }
         }
     }
 }
@@ -284,7 +316,11 @@ void pca0_isr() __interrupt PCA0_IRQn {
     }
 }
 
+uint32_t last_controller_time;
 void main() {
+    int16_t last_err;
+    bit last_err_present = 0;
+    
     PCA0MD &= ~0x40; // disable watchdog
     
     OSCICN |= 0x03; // set clock divider to 1
@@ -354,22 +390,51 @@ void main() {
     EIP1 |= 0x10; // high priority
     PCA0CN_CR = 1; // run
     
+    approximate_time = read_timer0();
+    
     enable_interrupts();
     
+    last_controller_time = read_timer0();
+    
     while(true) {
+        approximate_time = read_timer0();
         if(TCON_TF0) {
-            __critical {
-                if(TCON_TF0) {
-                    TCON_TF0 = 0;
-                    timer0_overflows++;
-                }
-            }
+            TCON_TF0 = 0;
+            timer0_overflows++;
         }
         if(!ADC0CN_ADBUSY) {
             if(capture_pos < sizeof(capture_buf)) {
                 capture_buf[capture_pos++] = ADC0H;
             }
             ADC0CN_ADBUSY = 1;
+        }
+        while(read_timer0() - last_controller_time >= 95703) { // run at 256 Hz
+            last_controller_time += 95703;
+            __critical {
+                controller_desired_revs += (uint32_t)controller_speed << 8;
+            }
+            if(!controller_active) continue;
+            {
+                uint16_t my_revs;
+                __critical {
+                    my_revs = revs;
+                }
+                {
+                    int16_t err = (uint16_t)(controller_desired_revs >> 16) - my_revs;
+                    int16_t d = last_err_present ? err - last_err : 0;
+                    int16_t controller_on_time = 250 + (d << 1) + (err >> 1) ;//+ (controller_integral >> 10);
+                    last_err = err;
+                    last_err_present = 1;
+                    if(controller_on_time < 99) controller_on_time = 99;
+                    if(controller_on_time > 1000) controller_on_time = 1000;
+                    controller_integral += err;
+                    __critical {
+                        if(controller_active) {
+                            on_time = controller_on_time;
+                        }
+                    }
+                }
+            }
         }
     }
 }
