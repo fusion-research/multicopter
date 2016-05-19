@@ -342,12 +342,12 @@ void pca0_isr() __interrupt PCA0_IRQn {
             
             if(iv.negative) iv.commutation_step -= 6;
             
-            revs++;
-            
             if(cmd.mode & MODE_BACKWARDS) {
+                revs--;
                 iv.commutation_step--;
                 if(iv.commutation_step == 255) iv.commutation_step = 5;
             } else {
+                revs++;
                 iv.commutation_step++;
                 if(iv.commutation_step == 6) iv.commutation_step = 0;
             }
