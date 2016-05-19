@@ -30,6 +30,7 @@ for i in xrange(100, 250):
 
 print 'starting controller'
 dev.write_packet(struct.pack('<BH', 5, 5000))
+t0 = time.time()
 
 if 0:
     while True:
@@ -38,5 +39,5 @@ else:
     while True:
         import math
         time.sleep(.01)
-        dev.write_packet(struct.pack('<BH', 5, 3750 + 1000 * math.sin(2*6.28*time.time())))
+        dev.write_packet(struct.pack('<BH', 5, 5000 + 1000 * math.sin(6.28*(time.time()-t0))))
         print_status()
