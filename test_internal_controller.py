@@ -12,7 +12,7 @@ s = serial.Serial('/dev/serial/by-id/pci-FTDI_FT232R_USB_UART_AH034I96-if00-port
 
 p = protocol.Protocol(s)
 
-id_ = 2
+id_ = int(sys.argv[1])
 dev = protocol.Device(p, 2, id_)
 
 def print_status():
@@ -32,6 +32,8 @@ print 'starting controller'
 dev.write_packet(struct.pack('<BH', 5, 5000))
 t0 = time.time()
 
+sign = lambda x: 1 if x >= 0 else -1
+
 if 0:
     while True:
         print_status()
@@ -39,5 +41,5 @@ else:
     while True:
         import math
         time.sleep(.01)
-        dev.write_packet(struct.pack('<BH', 5, 5000 + 1000 * math.sin(6.28*(time.time()-t0))))
+        dev.write_packet(struct.pack('<BH', 5, 5000 + 1000 * sign(math.sin(1/2*6.28*(time.time()-t0)))))
         print_status()

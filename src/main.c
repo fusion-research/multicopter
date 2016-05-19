@@ -24,7 +24,7 @@
 
 #define P1_ALL_OFF ((1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip))
 
-const uint8_t commutation_pattern[12] = { // turns on one of pFETs
+const uint8_t commutation_pattern[18] = { // turns on one of pFETs
     P1_ALL_OFF + (1 << ApFET), // Ap
     P1_ALL_OFF + (1 << CpFET), // Cp
     P1_ALL_OFF + (1 << CpFET), // Cp
@@ -38,8 +38,15 @@ const uint8_t commutation_pattern[12] = { // turns on one of pFETs
     P1_ALL_OFF + (1 << ApFET), // Ap
     P1_ALL_OFF + (1 << CpFET), // Cp
     P1_ALL_OFF + (1 << CpFET), // Cp
+    
+    P1_ALL_OFF,
+    P1_ALL_OFF,
+    P1_ALL_OFF,
+    P1_ALL_OFF,
+    P1_ALL_OFF,
+    P1_ALL_OFF,
 };
-const uint8_t commutation_pattern2[12] = { // turns on one of nFETs
+const uint8_t commutation_pattern2[18] = { // turns on one of nFETs
     P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << AnFET), // An
@@ -53,10 +60,18 @@ const uint8_t commutation_pattern2[12] = { // turns on one of nFETs
     P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << AnFET),  // An
+    
+    P1_ALL_OFF - (1 << AnFET) - (1 << BnFET), // An Bn
+    P1_ALL_OFF - (1 << BnFET) - (1 << CnFET), // Bn Cn
+    P1_ALL_OFF - (1 << AnFET) - (1 << CnFET), // An Cn
+    P1_ALL_OFF - (1 << AnFET) - (1 << BnFET), // An Bn
+    P1_ALL_OFF - (1 << BnFET) - (1 << CnFET), // Bn Cn
+    P1_ALL_OFF - (1 << AnFET) - (1 << CnFET), // An Cn
 };
-const uint8_t commutation_comp[12] = {
+const uint8_t commutation_comp[18] = {
     0x10, 0x11, 0x13, 0x10, 0x11, 0x13, // C A B C A B
     0x10, 0x11, 0x13, 0x10, 0x11, 0x13, // C A B C A B
+    0x10, 0x11, 0x13, 0x10, 0x11, 0x13,  // C A B C A B
 };
 
 void enable_interrupts() {
@@ -75,6 +90,7 @@ enum MODE {
     MODE_STEPPER = 1,
     MODE_NEGATIVE = 2, // apply negative voltage
     MODE_BACKWARDS = 4, // advance backwards through commutation pattern
+    MODE_BRAKE = 8, // overrides others
 };
 
 struct command {
@@ -329,7 +345,9 @@ void pca0_isr() __interrupt PCA0_IRQn {
             }
             iv.my_off_time = PWM_PERIOD - iv.my_on_time;
             
-            if(cmd.mode & MODE_NEGATIVE) {
+            if(iv.my_mode & MODE_BRAKE) {
+                iv.commutation_step += 12;
+            } else if(iv.my_mode & MODE_NEGATIVE) {
                 iv.commutation_step += 6;
             }
             
@@ -345,11 +363,13 @@ void pca0_isr() __interrupt PCA0_IRQn {
             }
             P1 = P1_ALL_OFF;
             
-            if(cmd.mode & MODE_NEGATIVE) {
+            if(iv.my_mode & MODE_BRAKE) {
+                iv.commutation_step -= 12;
+            } else if(iv.my_mode & MODE_NEGATIVE) {
                 iv.commutation_step -= 6;
             }
             
-            if(cmd.mode & MODE_BACKWARDS) {
+            if(iv.my_mode & MODE_BACKWARDS) {
                 revs--;
                 iv.commutation_step--;
                 if(iv.commutation_step == 255) iv.commutation_step = 5;
@@ -455,8 +475,8 @@ void main() {
             ADC0CN_ADBUSY = 1;
         }
         while(read_timer0() - last_controller_time >= 95703) { // run at 256 Hz
+            bit controller_was_active = controller_active;
             last_controller_time += 95703;
-            if(!controller_active) continue;
             {
                 uint16_t my_revs;
                 __critical {
@@ -464,26 +484,31 @@ void main() {
                 }
                 {
                     int16_t est = last_revs_present ? my_revs - last_revs : 0; // revs/s / 256
-                    int16_t err = (int16_t)controller_speed - ((int16_t)est << 8); // revs/s
-                    int16_t u = (controller_integral >> 16) + (err >> 4);
-                    last_revs = my_revs;
-                    last_revs_present = 1;
-                    controller_speed_measured = est << 8;
-                    controller_integral += (int32_t)err << 10;
+                    int32_t err = (int32_t)controller_speed - ((int32_t)est << 8); // revs/s
+                    
+                    int32_t u = (controller_integral >> 16) + (err >> 3);
+                    controller_integral += (int32_t)err << 12;
+                    
                     if(controller_integral < (int32_t)-MAX_PWM<<16) controller_integral = (int32_t)-MAX_PWM<<16;
                     if(controller_integral > (int32_t)MAX_PWM<<16) controller_integral = (int32_t)MAX_PWM<<16;
+                    
+                    last_revs = my_revs;
+                    last_revs_present = 1;
+                    
+                    controller_speed_measured = est << 8;
                     controller_output = u;
                     
                     {
                         struct command my_cmd = {.mode = 0};
                         if(u < 0) {
-                            my_cmd.mode |= MODE_NEGATIVE;
+                            my_cmd.mode |= MODE_BRAKE;
                             u = -u;
                         }
-                        my_cmd.on_time = MIN_PWM + u;
-                        if(my_cmd.on_time > MAX_PWM) {
-                            my_cmd.on_time = MAX_PWM;
+                        if(u > MAX_PWM-MIN_PWM) {
+                            u = MAX_PWM-MIN_PWM;
                         }
+                        my_cmd.on_time = MIN_PWM + u;
+                        if(!controller_active) continue;
                         __critical {
                             if(controller_active) {
                                 cmd.mode = my_cmd.mode;
