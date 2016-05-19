@@ -73,8 +73,8 @@ _endasm;
 
 enum MODE {
     MODE_STEPPER = 1,
-    MODE_NEGATIVE = 2,
-    MODE_BACKWARDS = 4
+    MODE_NEGATIVE = 2, // apply negative voltage
+    MODE_BACKWARDS = 4 // advance backwards through commutation pattern
 };
 
 struct command {
@@ -82,13 +82,14 @@ struct command {
     uint16_t on_time; // clock cycles
     uint16_t cycles; // used in stepper mode. pwm cycles
 };
-volatile struct command cmd = { .on_time = 0 };
+volatile struct command cmd = { .mode = MODE_NEGATIVE|MODE_BACKWARDS, .on_time = 0 };
 volatile uint16_t revs = 0;
 
 volatile bit controller_active = 0;
 volatile uint16_t controller_speed; // revs/s
 volatile int32_t controller_integral; // 16.16 on_time units
 volatile uint16_t controller_speed_measured;
+volatile int16_t controller_output;
 
 volatile __xdata uint8_t tx_buf[30];
 volatile uint8_t tx_buf_write_pos = 0;
@@ -173,10 +174,9 @@ void handle_message() {
             RSTSRC = 0x10; // reset into bootloader
             while(1);
         } else if(rx_buf[2] == 1) { // get status
-            uint16_t my_revs, local_on_time;
+            uint16_t my_revs;
             __critical {
                 my_revs = revs;
-                local_on_time = cmd.on_time;
             }
             if(rx_buf_pos != 3) return;
             send_byte(0xff);
@@ -187,8 +187,8 @@ void handle_message() {
             send_escaped_byte_and_crc(*id_pointer);
             send_escaped_byte_and_crc(my_revs&0xff);
             send_escaped_byte_and_crc(my_revs>>8);
-            send_escaped_byte_and_crc(local_on_time&0xff);
-            send_escaped_byte_and_crc(local_on_time>>8);
+            send_escaped_byte_and_crc(controller_output&0xff);
+            send_escaped_byte_and_crc(controller_output>>8);
             send_escaped_byte_and_crc((controller_speed_measured >>  0) & 0xff);
             send_escaped_byte_and_crc((controller_speed_measured >>  8) & 0xff);
             send_escaped_byte_and_crc((approximate_time >>  0) & 0xff);
@@ -304,9 +304,11 @@ struct {
     uint8_t state;
     uint8_t res;
     uint8_t commutation_step;
+    uint8_t negative;
 } iv = { // isr variables
     .count = 255,
-    .state = 0
+    .state = 0,
+    .commutation_step = 0,
 };
 #define DELAY(n, length) PCA0CP0 = PCA0CP0 + (length); iv.state = n; return; case n:
 void pca0_isr() __interrupt PCA0_IRQn {
@@ -314,7 +316,6 @@ void pca0_isr() __interrupt PCA0_IRQn {
     
     switch(iv.state) { case 0:
         while(true) {
-            iv.count = 255;
             iv.my_on_time = cmd.on_time;
             if(iv.my_on_time < 100 || iv.my_on_time > 1000) {
                 DELAY(1, 1225)
@@ -322,19 +323,33 @@ void pca0_isr() __interrupt PCA0_IRQn {
             }
             iv.my_off_time = 1225 - iv.my_on_time;
             
-            for(iv.commutation_step = 11; iv.commutation_step >= 6; iv.commutation_step--) {
-                CPT0MX = commutation_comp[iv.commutation_step];
+            if(cmd.mode & MODE_NEGATIVE) {
+                iv.commutation_step += 6;
+                iv.negative = 1;
+            } else iv.negative = 0;
+            
+            CPT0MX = commutation_comp[iv.commutation_step];
+            P1 = commutation_pattern[iv.commutation_step];
+            for(iv.f = 0; iv.f < iv.count; iv.f++) {
+                DELAY(3, iv.my_off_time)
+                P1 = commutation_pattern2[iv.commutation_step];
+                DELAY(2, iv.my_on_time)
+                iv.res = CPT0CN;
                 P1 = commutation_pattern[iv.commutation_step];
-                for(iv.f = 0; iv.f < iv.count; iv.f++) {
-                    DELAY(3, iv.my_off_time)
-                    P1 = commutation_pattern2[iv.commutation_step];
-                    DELAY(2, iv.my_on_time)
-                    iv.res = CPT0CN;
-                    P1 = commutation_pattern[iv.commutation_step];
-                    if(((iv.res & 0x40) >> 6) ^ (iv.commutation_step & 1)) { break; }
-                }
-                P1 = P1_ALL_OFF;
-                revs++;
+                if(((iv.res & 0x40) >> 6) ^ (iv.commutation_step & 1)) { break; }
+            }
+            P1 = P1_ALL_OFF;
+            
+            if(iv.negative) iv.commutation_step -= 6;
+            
+            revs++;
+            
+            if(cmd.mode & MODE_BACKWARDS) {
+                iv.commutation_step--;
+                if(iv.commutation_step == 255) iv.commutation_step = 5;
+            } else {
+                iv.commutation_step++;
+                if(iv.commutation_step == 6) iv.commutation_step = 0;
             }
         }
     }
@@ -443,18 +458,30 @@ void main() {
                 {
                     int16_t est = last_revs_present ? my_revs - last_revs : 0; // revs/s / 256
                     int16_t err = (int16_t)controller_speed - ((int16_t)est << 8); // revs/s
-                    int16_t controller_on_time = (controller_integral >> 16) + (err >> 4);
+                    int16_t u = (controller_integral >> 16) + (err >> 4);
                     last_revs = my_revs;
                     last_revs_present = 1;
                     controller_speed_measured = est << 8;
-                    if(controller_on_time < 100) controller_on_time = 100;
-                    if(controller_on_time > 1000) controller_on_time = 1000;
                     controller_integral += (int32_t)err << 10;
-                    if(controller_integral < (int32_t)100<<16) controller_integral = (int32_t)100<<16;
+                    if(controller_integral < (int32_t)-1000<<16) controller_integral = (int32_t)-1000<<16;
                     if(controller_integral > (int32_t)1000<<16) controller_integral = (int32_t)1000<<16;
-                    __critical {
-                        if(controller_active) {
-                            cmd.on_time = controller_on_time;
+                    controller_output = u;
+                    
+                    {
+                        struct command my_cmd = {.mode = 0};
+                        if(u < 0) {
+                            my_cmd.mode |= MODE_NEGATIVE;
+                            u = -u;
+                        }
+                        my_cmd.on_time = 100 + u;
+                        if(my_cmd.on_time > 1000) {
+                            my_cmd.on_time = 1000;
+                        }
+                        __critical {
+                            if(controller_active) {
+                                cmd.mode = my_cmd.mode;
+                                cmd.on_time = my_cmd.on_time;
+                            }
                         }
                     }
                 }
