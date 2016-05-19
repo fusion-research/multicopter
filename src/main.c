@@ -24,23 +24,40 @@
 
 #define P1_ALL_OFF ((1 << AnFET)+(1 << BnFET)+(1 << CnFET)+(1 << Adc_Ip))
 
-const uint8_t commutation_pattern[6] = { // turns on one of pFETs
+const uint8_t commutation_pattern[12] = { // turns on one of pFETs
     P1_ALL_OFF + (1 << ApFET), // Ap
     P1_ALL_OFF + (1 << CpFET), // Cp
     P1_ALL_OFF + (1 << CpFET), // Cp
     P1_ALL_OFF + (1 << BpFET), // Bp
     P1_ALL_OFF + (1 << BpFET), // Bp
-    P1_ALL_OFF + (1 << ApFET)  // Ap
+    P1_ALL_OFF + (1 << ApFET), // Ap
+    
+    P1_ALL_OFF + (1 << BpFET), // Bp
+    P1_ALL_OFF + (1 << BpFET), // Bp
+    P1_ALL_OFF + (1 << ApFET), // Ap
+    P1_ALL_OFF + (1 << ApFET), // Ap
+    P1_ALL_OFF + (1 << CpFET), // Cp
+    P1_ALL_OFF + (1 << CpFET)  // Cp
 };
-const uint8_t commutation_pattern2[6] = { // turns on one of nFETs
+const uint8_t commutation_pattern2[12] = { // turns on one of nFETs
     P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << AnFET), // An
     P1_ALL_OFF + (1 << BpFET) - (1 << AnFET), // An
     P1_ALL_OFF + (1 << BpFET) - (1 << CnFET), // Cn
-    P1_ALL_OFF + (1 << ApFET) - (1 << CnFET)  // Cn
+    P1_ALL_OFF + (1 << ApFET) - (1 << CnFET), // Cn
+    
+    P1_ALL_OFF + (1 << BpFET) - (1 << AnFET), // An
+    P1_ALL_OFF + (1 << BpFET) - (1 << CnFET), // Cn
+    P1_ALL_OFF + (1 << ApFET) - (1 << CnFET), // Cn
+    P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
+    P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
+    P1_ALL_OFF + (1 << CpFET) - (1 << AnFET)  // An
 };
-const uint8_t commutation_comp[6] = { 0x10, 0x11, 0x13, 0x10, 0x11, 0x13 }; // C A B C A B
+const uint8_t commutation_comp[12] = {
+    0x10, 0x11, 0x13, 0x10, 0x11, 0x13, // C A B C A B
+    0x10, 0x11, 0x13, 0x10, 0x11, 0x13  // C A B C A B
+};
 
 void enable_interrupts() {
 _asm
@@ -54,7 +71,18 @@ _asm
 _endasm;
 }
 
-volatile uint16_t on_time = 0;
+enum MODE {
+    MODE_STEPPER = 1,
+    MODE_NEGATIVE = 2,
+    MODE_BACKWARDS = 4
+};
+
+struct command {
+    uint8_t mode;
+    uint16_t on_time; // clock cycles
+    uint16_t cycles; // used in stepper mode. pwm cycles
+};
+volatile struct command cmd = { .on_time = 0 };
 volatile uint16_t revs = 0;
 
 volatile bit controller_active = 0;
@@ -62,7 +90,7 @@ volatile uint16_t controller_speed; // revs/s
 volatile int32_t controller_integral; // 16.16 on_time units
 volatile uint16_t controller_speed_measured;
 
-volatile uint8_t tx_buf[30];
+volatile __xdata uint8_t tx_buf[30];
 volatile uint8_t tx_buf_write_pos = 0;
 volatile uint8_t tx_buf_read_pos = 0;
 
@@ -103,7 +131,7 @@ void send_escaped_byte_and_crc(uint8_t x) {
 }
 
 volatile bit in_escape = 0, in_message = 0;
-volatile uint8_t rx_buf[20];
+volatile __xdata uint8_t rx_buf[20];
 volatile uint8_t rx_buf_pos;
 
 uint8_t __code *id_pointer = (uint8_t __code *)0x1c00;
@@ -135,7 +163,7 @@ uint32_t read_timer0() { // can't be called from interrupts
 }
 uint32_t approximate_time;
 
-volatile uint8_t __xdata capture_buf[512];
+volatile uint8_t __xdata capture_buf[256];
 volatile uint16_t capture_pos = sizeof(capture_buf);
 
 void handle_message() {
@@ -148,7 +176,7 @@ void handle_message() {
             uint16_t my_revs, local_on_time;
             __critical {
                 my_revs = revs;
-                local_on_time = on_time;
+                local_on_time = cmd.on_time;
             }
             if(rx_buf_pos != 3) return;
             send_byte(0xff);
@@ -178,7 +206,7 @@ void handle_message() {
         } else if(rx_buf[2] == 2) { // set power
             if(rx_buf_pos != 5) return;
             __critical {
-                on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
+                cmd.on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
             }
             controller_active = 0;
         } else if(rx_buf[2] == 3) { // start capture
@@ -199,7 +227,7 @@ void handle_message() {
             if(rx_buf_pos != 5) return;
             controller_speed = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
             if(!controller_active) {
-                controller_integral = (int32_t)on_time << 16;
+                controller_integral = (int32_t)cmd.on_time << 16;
                 controller_active = 1;
             }
         }
@@ -268,37 +296,42 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
-uint16_t my_on_time;
-uint16_t my_off_time;
-uint8_t count = 255;
-uint8_t f;
-uint8_t state = 0;
-uint8_t res;
-uint8_t commutation_step;
-#define DELAY(n, length) PCA0CP0 = PCA0CP0 + (length); state = n; return; case n:
+struct {
+    uint16_t my_on_time;
+    uint16_t my_off_time;
+    uint8_t count;
+    uint8_t f;
+    uint8_t state;
+    uint8_t res;
+    uint8_t commutation_step;
+} iv = { // isr variables
+    .count = 255,
+    .state = 0
+};
+#define DELAY(n, length) PCA0CP0 = PCA0CP0 + (length); iv.state = n; return; case n:
 void pca0_isr() __interrupt PCA0_IRQn {
     PCA0CN_CCF0 = 0;
     
-    switch(state) { case 0:
+    switch(iv.state) { case 0:
         while(true) {
-            count = 255;
-            my_on_time = on_time;
-            if(my_on_time < 100 || my_on_time > 1000) {
-                DELAY(1, 2450) // .1 ms
+            iv.count = 255;
+            iv.my_on_time = cmd.on_time;
+            if(iv.my_on_time < 100 || iv.my_on_time > 1000) {
+                DELAY(1, 1225)
                 continue;
             }
-            my_off_time = 1225 - my_on_time;
+            iv.my_off_time = 1225 - iv.my_on_time;
             
-            for(commutation_step = 0; commutation_step < 6; commutation_step++) {
-                CPT0MX = commutation_comp[commutation_step];
-                P1 = commutation_pattern[commutation_step];
-                for(f = 0; f < count; f++) {
-                    DELAY(3, my_off_time)
-                    P1 = commutation_pattern2[commutation_step];
-                    DELAY(2, my_on_time)
-                    res = CPT0CN;
-                    P1 = commutation_pattern[commutation_step];
-                    if(((res & 0x40) >> 6) ^ (commutation_step & 1)) { break; }
+            for(iv.commutation_step = 11; iv.commutation_step >= 6; iv.commutation_step--) {
+                CPT0MX = commutation_comp[iv.commutation_step];
+                P1 = commutation_pattern[iv.commutation_step];
+                for(iv.f = 0; iv.f < iv.count; iv.f++) {
+                    DELAY(3, iv.my_off_time)
+                    P1 = commutation_pattern2[iv.commutation_step];
+                    DELAY(2, iv.my_on_time)
+                    iv.res = CPT0CN;
+                    P1 = commutation_pattern[iv.commutation_step];
+                    if(((iv.res & 0x40) >> 6) ^ (iv.commutation_step & 1)) { break; }
                 }
                 P1 = P1_ALL_OFF;
                 revs++;
@@ -421,7 +454,7 @@ void main() {
                     if(controller_integral > (int32_t)1000<<16) controller_integral = (int32_t)1000<<16;
                     __critical {
                         if(controller_active) {
-                            on_time = controller_on_time;
+                            cmd.on_time = controller_on_time;
                         }
                     }
                 }
