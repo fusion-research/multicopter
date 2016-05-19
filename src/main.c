@@ -37,7 +37,7 @@ const uint8_t commutation_pattern[12] = { // turns on one of pFETs
     P1_ALL_OFF + (1 << ApFET), // Ap
     P1_ALL_OFF + (1 << ApFET), // Ap
     P1_ALL_OFF + (1 << CpFET), // Cp
-    P1_ALL_OFF + (1 << CpFET)  // Cp
+    P1_ALL_OFF + (1 << CpFET), // Cp
 };
 const uint8_t commutation_pattern2[12] = { // turns on one of nFETs
     P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
@@ -52,11 +52,11 @@ const uint8_t commutation_pattern2[12] = { // turns on one of nFETs
     P1_ALL_OFF + (1 << ApFET) - (1 << CnFET), // Cn
     P1_ALL_OFF + (1 << ApFET) - (1 << BnFET), // Bn
     P1_ALL_OFF + (1 << CpFET) - (1 << BnFET), // Bn
-    P1_ALL_OFF + (1 << CpFET) - (1 << AnFET)  // An
+    P1_ALL_OFF + (1 << CpFET) - (1 << AnFET),  // An
 };
 const uint8_t commutation_comp[12] = {
     0x10, 0x11, 0x13, 0x10, 0x11, 0x13, // C A B C A B
-    0x10, 0x11, 0x13, 0x10, 0x11, 0x13  // C A B C A B
+    0x10, 0x11, 0x13, 0x10, 0x11, 0x13, // C A B C A B
 };
 
 void enable_interrupts() {
@@ -74,7 +74,7 @@ _endasm;
 enum MODE {
     MODE_STEPPER = 1,
     MODE_NEGATIVE = 2, // apply negative voltage
-    MODE_BACKWARDS = 4 // advance backwards through commutation pattern
+    MODE_BACKWARDS = 4, // advance backwards through commutation pattern
 };
 
 struct command {
@@ -82,7 +82,7 @@ struct command {
     uint16_t on_time; // clock cycles
     uint16_t cycles; // used in stepper mode. pwm cycles
 };
-volatile struct command cmd = { .mode = MODE_NEGATIVE|MODE_BACKWARDS, .on_time = 0 };
+volatile struct command cmd = { .mode = 0, .on_time = 0 };
 volatile uint16_t revs = 0;
 
 volatile bit controller_active = 0;
@@ -206,6 +206,7 @@ void handle_message() {
         } else if(rx_buf[2] == 2) { // set power
             if(rx_buf_pos != 5) return;
             __critical {
+                cmd.mode = 0;
                 cmd.on_time = rx_buf[3] | ((uint16_t)rx_buf[4] << 8);
             }
             controller_active = 0;
@@ -296,6 +297,10 @@ void uart0_isr() __interrupt UART0_IRQn {
     }
 }
 
+#define PWM_PERIOD 1225
+#define MIN_PWM 100
+#define MAX_PWM 1000
+
 struct {
     uint16_t my_on_time;
     uint16_t my_off_time;
@@ -304,7 +309,7 @@ struct {
     uint8_t state;
     uint8_t res;
     uint8_t commutation_step;
-    uint8_t negative;
+    uint8_t my_mode;
 } iv = { // isr variables
     .count = 255,
     .state = 0,
@@ -316,17 +321,17 @@ void pca0_isr() __interrupt PCA0_IRQn {
     
     switch(iv.state) { case 0:
         while(true) {
+            iv.my_mode = cmd.mode;
             iv.my_on_time = cmd.on_time;
-            if(iv.my_on_time < 100 || iv.my_on_time > 1000) {
-                DELAY(1, 1225)
+            if(iv.my_on_time < MIN_PWM || iv.my_on_time > MAX_PWM) {
+                DELAY(1, PWM_PERIOD)
                 continue;
             }
-            iv.my_off_time = 1225 - iv.my_on_time;
+            iv.my_off_time = PWM_PERIOD - iv.my_on_time;
             
             if(cmd.mode & MODE_NEGATIVE) {
                 iv.commutation_step += 6;
-                iv.negative = 1;
-            } else iv.negative = 0;
+            }
             
             CPT0MX = commutation_comp[iv.commutation_step];
             P1 = commutation_pattern[iv.commutation_step];
@@ -340,7 +345,9 @@ void pca0_isr() __interrupt PCA0_IRQn {
             }
             P1 = P1_ALL_OFF;
             
-            if(iv.negative) iv.commutation_step -= 6;
+            if(cmd.mode & MODE_NEGATIVE) {
+                iv.commutation_step -= 6;
+            }
             
             if(cmd.mode & MODE_BACKWARDS) {
                 revs--;
@@ -463,8 +470,8 @@ void main() {
                     last_revs_present = 1;
                     controller_speed_measured = est << 8;
                     controller_integral += (int32_t)err << 10;
-                    if(controller_integral < (int32_t)-1000<<16) controller_integral = (int32_t)-1000<<16;
-                    if(controller_integral > (int32_t)1000<<16) controller_integral = (int32_t)1000<<16;
+                    if(controller_integral < (int32_t)-MAX_PWM<<16) controller_integral = (int32_t)-MAX_PWM<<16;
+                    if(controller_integral > (int32_t)MAX_PWM<<16) controller_integral = (int32_t)MAX_PWM<<16;
                     controller_output = u;
                     
                     {
@@ -473,9 +480,9 @@ void main() {
                             my_cmd.mode |= MODE_NEGATIVE;
                             u = -u;
                         }
-                        my_cmd.on_time = 100 + u;
-                        if(my_cmd.on_time > 1000) {
-                            my_cmd.on_time = 1000;
+                        my_cmd.on_time = MIN_PWM + u;
+                        if(my_cmd.on_time > MAX_PWM) {
+                            my_cmd.on_time = MAX_PWM;
                         }
                         __critical {
                             if(controller_active) {
