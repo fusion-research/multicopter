@@ -21,8 +21,8 @@ class JS(abstract.FileDescriptor):
             elif type_ == evdev.ecodes.EV_ABS:
                 for code, absinfo in value:
                     abs_states[code] = absinfo
-        for code, value in self._dev.active_keys():
-            key_states[code] = value
+        for code in self._dev.active_keys():
+            key_states[code] = 1
         
         self.state = variable.Variable((abs_states, key_states))
         
