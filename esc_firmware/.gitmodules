@@ -1,0 +1,3 @@
+[submodule "intelhex_repo"]
+	path = intelhex_repo
+	url = git@github.com:bialix/intelhex.git

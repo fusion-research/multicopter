@@ -1,0 +1,7 @@
+minimum goals
+    UART control of power
+
+nice goals
+    closed loop control of RPM
+    bidirectional communication
+        temperature, load, saturation, battery voltage

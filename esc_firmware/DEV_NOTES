@@ -1,0 +1,38 @@
+program memory map
+------------------
+
+page = 512 bytes = 0x200 bytes
+
+pages 0-3 bootloader
+pages 4-13 main program with interrupt table @ 0x800
+page 14 1 byte ID @ 0x1c00
+page 15 reserved
+
+protocol
+--------
+
+packetization layer:
+
+ESCAPE        = 0x34
+ESCAPE_START  = 0x01
+ESCAPE_END    = 0x02
+ESCAPE_ESCAPE = 0x03
+
+res = FF + ESCAPE + ESCAPE_START + data.replace(ESCAPE, ESCAPE + ESCAPE_ESCAPE) + ESCAPE + ESCAPE_END
+
+CRC layer:
+
+data has 4-byte CRC appended and then verified and stripped on receiving end
+
+Address layer:
+
+host to device: DEV_ID TYPE
+
+Types defined:
+
+0 host->bootloader
+1 bootloader->host
+2 host->program
+3 program->host
+4 host->upgrader
+5 upgrader->host

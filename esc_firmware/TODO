@@ -1,0 +1,14 @@
+bootloader
+----------
+
+main firmware
+-------------
+capture some ADC waveforms to judge if it's useful
+
+closed loop control of angular velocity
+feedback
+
+start correctly (without going in reverse)
+    also detect if we get in reversed mode during operation and restart
+
+braking/backwards forcing
