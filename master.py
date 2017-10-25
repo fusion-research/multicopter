@@ -15,7 +15,7 @@ import sdgps
 def main():
     j = js.JS(reactor)
     sdgps_protocol = yield endpoints.TCP4ClientEndpoint(reactor, "localhost", 1234).connect(deferral.AutoServerFactory(lambda addr: sdgps.SDGPSProtocol()))
-    xb = yield xbee.XBee(reactor, '/dev/ttyUSB0', 230400)
+    xb = yield xbee.XBee(reactor, '/dev/serial/by-id/pci-Prolific_Technology_Inc._USB-Serial_Controller_D-if00-port0', 230400)
     
     while True:
         #for k in j.state.value[0]:
