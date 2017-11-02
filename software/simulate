@@ -1,0 +1,113 @@
+#!/usr/bin/python
+"""
+Script for multicopter simulation.
+Note: base-SI units are used consistently throughout.
+
+"""
+from __future__ import division
+import numpy as np; npl = np.linalg
+from matplotlib import pyplot
+from mpl_toolkits.mplot3d import Axes3D
+import multicopter
+
+# Thrusters
+prop_dia = 0.15
+motor_kv = 920
+bus_voltage = 0.9 * 14
+max_rpm = motor_kv * bus_voltage
+thrust_from_effort = lambda rpm: 1e-7 * rpm**2
+thr1 = multicopter.Thruster([ 0.25,   0,   0.02], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)
+thr2 = multicopter.Thruster([-0.25,   0,   0.02], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)
+thr3 = multicopter.Thruster([  0  ,  0.25, 0.02], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)
+thr4 = multicopter.Thruster([  0  , -0.25, 0.02], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)
+
+# Multicopter model
+mass = 0.5
+inertia = np.diag((5e-3, 5e-3, 9e-3))
+drag_lin = np.array([5e-1, 5e-1, 5e-1])
+drag_ang = np.array([2e-2, 2e-2, 2e-2])
+boi = multicopter.Model(thrusters={"thr1": thr1, "thr2": thr2, "thr3": thr3, "thr4": thr4},
+                        mass=mass,
+                        inertia=inertia,
+                        drag_lin=drag_lin,
+                        drag_ang=drag_ang)
+
+# Temporary controller
+def controller(state):
+    ui = np.sqrt((mass*9.81/4)/1e-7)
+    return {"thr1": ui, "thr2": ui, "thr3": ui, "thr4": ui}
+
+# Scheduled external disturbance wrench
+wind = lambda t: None
+
+# Time domain
+dt = 0.05
+duration = 10
+T = np.arange(0, duration, dt)
+
+# Initial condition
+P = [[0, 0, 10]]
+Q = [[0, 0, 0, 1]]
+V = [[0, 0, 0]]
+W = [[0, 0, 0]]
+states = [multicopter.State(multicopter.Pose(P[0], Q[0]), multicopter.Twist(V[0], W[0]), 0)]
+U = []
+
+# Simulation
+for i, t in enumerate(T[:-1]):
+    efforts = controller(states[i])
+    states.append(boi.step_dynamics(states[i], efforts, dt, wind(t)))
+    P.append(states[i+1].pose.lin)
+    Q.append(states[i+1].pose.ang)
+    V.append(states[i+1].twist.lin)
+    W.append(states[i+1].twist.ang)
+    U.append([efforts[key] for key in boi.thruster_keys])
+
+# Main figures
+fig = pyplot.figure()
+fig.suptitle("Results", fontsize=18)
+A_ax = fig.add_subplot(2, 1, 1)
+U_ax = fig.add_subplot(2, 1, 2)
+P_fig = pyplot.figure()
+P_ax = P_fig.add_subplot(111, projection="3d")
+
+# Plot attitude Euler angles
+A = np.rad2deg(map(multicopter.euler_from_quaternion, Q))
+A_ax.plot(T, A[:, 0], 'r', label="roll")
+A_ax.plot(T, A[:, 1], 'g', label="pitch")
+A_ax.plot(T, A[:, 2], 'b', label="yaw")
+A_ax.set_xlim([T[0], T[-1]])
+A_ax.set_ylabel("Attitude Angle (deg)", fontsize=14)
+A_ax.legend(fontsize=12)
+A_ax.grid(True)
+
+# Plot thruster efforts
+U = np.vstack((np.array(U), [0, 0, 0, 0]))
+U_ax.plot(T, U[:, 0], 'r', label=boi.thruster_keys[0])
+U_ax.plot(T, U[:, 1], 'g', label=boi.thruster_keys[1])
+U_ax.plot(T, U[:, 2], 'b', label=boi.thruster_keys[2])
+U_ax.plot(T, U[:, 3], 'm', label=boi.thruster_keys[3])
+U_ax.set_xlim([T[0], T[-1]])
+U_ax.set_ylabel("Thruster Effort (RPM)", fontsize=14)
+U_ax.legend(fontsize=12)
+U_ax.grid(True)
+U_ax.set_xlabel("Time (s)", fontsize=14)
+
+# Plot position trajectory
+P = np.array(P)
+P_ax.set_title("World Position Trajectory", fontsize=18)
+P_ax.plot(P[::2, 0], P[::2, 1], P[::2, 2], 'k')
+P_ax.scatter(P[0, 0], P[0, 1], P[0, 2], c='k', s=30)
+P_ax.scatter(P[-1, 0], P[-1, 1], P[-1, 2], c='g', s=30)
+try:
+    ground_xx, ground_yy = np.meshgrid(np.arange(np.min(P[:, 0]-5), np.max(P[:, 0]+5)), np.arange(np.min(P[:, 1]-5), np.max(P[:, 1]+5)))
+    P_ax.plot_surface(ground_xx, ground_yy, np.zeros_like(ground_xx), color='b', alpha=0.2)
+except:
+    print "Warning: Multicopter raveled too far to plot ground plane."
+P_ax.set_xlabel("- x (m) +", fontsize=14)
+P_ax.set_ylabel("- y (m) +", fontsize=14)
+P_ax.set_zlabel("- z (m) +", fontsize=14)
+P_ax.grid(True)
+P_ax.axis("equal")
+
+pyplot.show()
