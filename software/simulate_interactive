@@ -1,0 +1,103 @@
+#!/usr/bin/python
+"""
+Script for ~iNtErAcTiVe~ multicopter simulation.
+Note: base-SI units are used consistently throughout.
+
+"""
+from __future__ import division
+import numpy as np; npl = np.linalg
+from mayavi import mlab
+from tvtk.tools import visual
+
+import multicopter.motion as motion
+from multicopter.model import Model
+from multicopter.thruster import Thruster
+
+# Send pointlessly spammed mayavi warnings to the shadow realm
+import os, vtk
+if os.path.exists("/dev/null"): shadow_realm = "/dev/null"
+else: shadow_realm = "c:\\nul"
+mlab_warning_output = vtk.vtkFileOutputWindow()
+mlab_warning_output.SetFileName(shadow_realm)
+vtk.vtkOutputWindow().SetInstance(mlab_warning_output)
+
+# Thruster models
+prop_dia = 0.15
+motor_kv = 920
+bus_voltage = 0.9 * 14
+max_rpm = motor_kv * bus_voltage
+thrust_from_effort = lambda rpm: 1e-7 * np.abs(rpm) * rpm
+thruster_positions = [( 0.25,   0  , 0.02),
+                      (-0.25,   0  , 0.02),
+                      (  0  ,  0.25, 0.02),
+                      (  0  , -0.25, 0.02)]
+thrusters = {"thr0": Thruster(thruster_positions[0], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
+             "thr1": Thruster(thruster_positions[1], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
+             "thr2": Thruster(thruster_positions[2], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
+             "thr3": Thruster(thruster_positions[3], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)}
+
+# Multicopter model
+mass = 0.5
+inertia = np.diag((5e-3, 5e-3, 9e-3))
+drag_lin = np.array([5e-1, 5e-1, 5e-1])
+drag_ang = np.array([2e-2, 2e-2, 2e-2])
+myboi = Model(thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, -9.81])
+
+# Temporary controller
+def controller(state):
+    ui = 0
+    return {"thr0": ui, "thr1": ui, "thr2": ui, "thr3": ui}
+
+# Scheduled external disturbance wrench
+wind = lambda t: None
+
+# Display set-up
+fig = mlab.figure(size=(1000, 1000), bgcolor=(0.1, 0.1, 0.1))
+visual.set_viewer(fig)
+
+# Environment visual model
+building_grid = (4, 4); n_buildings = np.product(building_grid)
+building_size = (3, 3, 4)
+building_alley = 3
+building_colors = map(tuple, np.array((np.linspace(0.0, 0.0, n_buildings),
+                                       np.linspace(0.8, 0.3, n_buildings),
+                                       np.linspace(0.3, 0.8, n_buildings))).T)
+building_centers = np.zeros((n_buildings, 2))
+for i, x in enumerate(np.linspace(0, (building_grid[0]-1)*(building_size[0] + building_alley), building_grid[0])):
+    for j, y in enumerate(np.linspace(0, (building_grid[1]-1)*(building_size[1] + building_alley), building_grid[1])):
+        idx = building_grid[1]*i + j
+        building_centers[idx] = (x, y)
+        visual.box(x=x, y=y, z=building_size[2]/2, size=building_size, color=building_colors[idx])
+ground_xx, ground_yy = map(np.transpose, np.meshgrid(np.linspace(np.min(building_centers[:, 0]-5), np.max(building_centers[:, 0]+5), 5),
+                                         np.linspace(np.min(building_centers[:, 1]-5), np.max(building_centers[:, 1]+5), 5)))
+mlab.surf(ground_xx, ground_yy, np.zeros_like(ground_xx), color=(0, 0.2, 0.2), warp_scale=1)
+
+# Multicopter visual model
+copter_body = np.array([(0, 0, 0)] + thruster_positions)
+copter_forward = np.array([(0, 0, 0), (2*npl.norm(thruster_positions[0]), 0, 0)])
+copter_points_plot = mlab.points3d(copter_body[:, 0], copter_body[:, 1], copter_body[:, 2], scale_factor=0.15, color=(1, 0, 0))
+copter_line_plot = mlab.plot3d(copter_forward[:, 0], copter_forward[:, 1], copter_forward[:, 2], line_width=5, color=(1, 0, 1))
+
+# Initial condition
+state = motion.State(motion.Pose([3, 3, 5], [0, 0, 0, 1]),
+                     motion.Twist([0, 0, 0], [0, 0, 0]),
+                     0.0)
+
+# Simulation
+dt = 0.03
+@mlab.animate(delay=int(dt*1000))
+def simulate():
+    global state
+    while True:
+        efforts = controller(state)
+        state = myboi.step_dynamics(state, efforts, dt, wind(state.time))
+        if state.pose.lin[2] < -0.1: state.pose.lin[2] = 0
+        copter_points = np.array([state.pose.transform_point(p) for p in copter_body])
+        copter_line = np.array([state.pose.transform_point(p) for p in copter_forward])
+        copter_points_plot.mlab_source.set(x=copter_points[:, 0], y=copter_points[:, 1], z=copter_points[:, 2])
+        copter_line_plot.mlab_source.set(x=copter_line[:, 0], y=copter_line[:, 1], z=copter_line[:, 2])
+        mlab.view(focalpoint=state.pose.lin.tolist(), distance=20)
+        yield
+
+simulate()
+mlab.show()
