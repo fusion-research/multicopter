@@ -49,8 +49,8 @@ class Model(object):
 
         """
         state_deriv = self.dynamics(state, efforts, wind_wrench)
-        return motion.State(motion.Pose(state.pose.lin + dt*state_deriv.pose_deriv.lin,
-                                        motion.quaternion_multiply(state.pose.ang, motion.quaternion_from_rotvec(dt*state_deriv.pose_deriv.ang))),
+        return motion.State(motion.Pose(state.pose.lin + dt*state_deriv.pose_deriv.lin + 0.5*(dt**2)*state.pose.rotate_vector(state_deriv.twist_deriv.lin),
+                                        motion.quaternion_multiply(state.pose.ang, motion.quaternion_from_rotvec(dt*state_deriv.pose_deriv.ang + 0.5*(dt**2)*state_deriv.twist_deriv.ang))),
                             motion.Twist(state.twist.lin + dt*state_deriv.twist_deriv.lin,
                                          state.twist.ang + dt*state_deriv.twist_deriv.ang),
                             state.time + dt)
