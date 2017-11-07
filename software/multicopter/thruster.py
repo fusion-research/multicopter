@@ -28,6 +28,8 @@ class Thruster(object):
         self.reaction_coeff = float(reaction_coeff)
         self.max_effort = float(max_effort)
         self.min_effort = float(min_effort)
+        self.direction = np.array(direction, dtype=np.float64) / npl.norm(direction)
+
+        # These are also convenient to store for use by thrust allocator
         self.max_thrust = self.thrust_from_effort(self.max_effort)
         self.min_thrust = self.thrust_from_effort(self.min_effort)
-        self.direction = np.array(direction, dtype=np.float64) / npl.norm(direction)

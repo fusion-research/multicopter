@@ -16,31 +16,37 @@ class Model(object):
 
     The following simplifying assumptions are currently made, but they are all very easy to remove later if needed:
         - Translational drag acts at the center of mass
+        - Translational and angular drag are both approximately linear in twist
         - Rotation of the Earth is negligible (no global centripetal or Coriolis effects)
         - Gravity field is uniform over the operating region
-        - Translational and angular drag are both approximately linear in twist
         - Same assumptions listed in the Thruster class for thrusters
 
     """
     def __init__(self, thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, -9.81]):
         self.thrusters = thrusters
-        self.thruster_keys = self.thrusters.keys()
-        self.thruster_list = [self.thrusters[key] for key in self.thruster_keys]  # assures consistent ordering for the B matrices, etc...
-        self.thrust_lims = np.array([(thr.min_thrust, thr.max_thrust) for thr in self.thruster_list])
-        self.reaction_coeffs = np.array([thr.reaction_coeff for thr in self.thruster_list])
-        self.B_direcs = np.transpose([thr.direction for thr in self.thruster_list])
-        self.B_levers = np.transpose([np.cross(thr.position, thr.direction) for thr in self.thruster_list])
-        self.thrusts_from_efforts = lambda efforts: np.clip([self.thrusters[key].thrust_from_effort(efforts[key]) for key in self.thruster_keys],
-                                                            self.thrust_lims[:, 0], self.thrust_lims[:, 1])
-        self.wrench_from_thrusts = lambda thrusts: motion.Wrench(self.B_direcs.dot(thrusts),
-                                                                 self.B_levers.dot(thrusts) + self.B_direcs.dot(self.reaction_coeffs * thrusts))
         self.mass = float(mass)
-        self.invmass = 1 / self.mass
         self.inertia = np.array(inertia, dtype=np.float64)
-        self.invinertia = npl.inv(self.inertia)
         self.drag_lin = np.array(drag_lin, dtype=np.float64)
         self.drag_ang = np.array(drag_ang, dtype=np.float64)
         self.gravity = np.array(gravity, dtype=np.float64)
+
+        # Memoize these
+        self.invmass = 1 / self.mass
+        self.invinertia = npl.inv(self.inertia)
+
+        # Extract thruster information into ordered arrays for consistent and efficient internal use
+        self.thruster_keys = self.thrusters.keys()
+        self.thruster_list = [self.thrusters[key] for key in self.thruster_keys]
+        self.thrust_limits = np.array([(thr.min_thrust, thr.max_thrust) for thr in self.thruster_list])
+        self.reaction_coeffs = np.array([thr.reaction_coeff for thr in self.thruster_list])
+        self.B_direcs = np.transpose([thr.direction for thr in self.thruster_list])
+        self.B_levers = np.transpose([np.cross(thr.position, thr.direction) for thr in self.thruster_list])
+
+        # Thruster statics
+        self.thrusts_from_efforts = lambda efforts: np.clip([self.thrusters[key].thrust_from_effort(efforts[key]) for key in self.thruster_keys],
+                                                            self.thrust_limits[:, 0], self.thrust_limits[:, 1])
+        self.wrench_from_thrusts = lambda thrusts: motion.Wrench(self.B_direcs.dot(thrusts),
+                                                                 self.B_levers.dot(thrusts) + self.B_direcs.dot(self.reaction_coeffs * thrusts))
 
     def step_dynamics(self, state, efforts, dt, wind_wrench=None):
         """

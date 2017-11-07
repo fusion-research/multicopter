@@ -73,6 +73,15 @@ class Wrench(object):
         self.lin = np.array(force, dtype=np.float64)
         self.ang = np.array(torque, dtype=np.float64)
 
+    def __add__(self, other):
+        return Wrench(self.lin + other.lin, self.ang + other.ang)
+
+    def __sub__(self, other):
+        return Wrench(self.lin - other.lin, self.ang - other.ang)
+
+    def norm_squared(self):
+        return np.sum(np.concatenate((self.lin, self.ang))**2)
+
 
 class Accel(object):
     """
