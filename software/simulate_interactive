@@ -12,6 +12,7 @@ from tvtk.tools import visual
 import multicopter.motion as motion
 from multicopter.model import Model
 from multicopter.thruster import Thruster
+from multicopter.controller import Controller
 
 # Send pointlessly spammed mayavi warnings to the shadow realm
 import os, vtk
@@ -27,14 +28,15 @@ motor_kv = 920
 bus_voltage = 0.9 * 14
 max_rpm = motor_kv * bus_voltage
 thrust_from_effort = lambda rpm: 1e-7 * np.abs(rpm) * rpm
+reaction_coeff = 0.1*prop_dia
 thruster_positions = [( 0.25,   0  , 0.02),
                       (-0.25,   0  , 0.02),
                       (  0  ,  0.25, 0.02),
                       (  0  , -0.25, 0.02)]
-thrusters = {"thr0": Thruster(thruster_positions[0], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
-             "thr1": Thruster(thruster_positions[1], thrust_from_effort, lambda rpm: 0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
-             "thr2": Thruster(thruster_positions[2], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm),
-             "thr3": Thruster(thruster_positions[3], thrust_from_effort, lambda rpm: -0.1*thrust_from_effort(rpm) * prop_dia, max_rpm)}
+thrusters = {"thr0": Thruster(thruster_positions[0], thrust_from_effort, reaction_coeff, max_rpm),
+             "thr1": Thruster(thruster_positions[1], thrust_from_effort, reaction_coeff, max_rpm),
+             "thr2": Thruster(thruster_positions[2], thrust_from_effort, -reaction_coeff, max_rpm),
+             "thr3": Thruster(thruster_positions[3], thrust_from_effort, -reaction_coeff, max_rpm)}
 
 # Multicopter model
 mass = 0.5
@@ -45,8 +47,14 @@ myboi = Model(thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, -9.81
 
 # Temporary controller
 def controller(state):
-    ui = 0
-    return {"thr0": ui, "thr1": ui, "thr2": ui, "thr3": ui}
+    if state.pose.lin[2] < 2:
+        ui = 0.8*max_rpm
+        rando = (1.005 - 0.995)*np.random.sample() + 0.995
+    else:
+        ui = 0
+        rando = 1
+    # ui = np.sqrt((mass*9.81/4)/1e-7)  # open-loop hover
+    return {"thr0": ui, "thr1": ui, "thr2": rando*ui, "thr3": ui}
 
 # Scheduled external disturbance wrench
 wind = lambda t: None

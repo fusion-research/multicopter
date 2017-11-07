@@ -15,6 +15,7 @@ class Model(object):
     gravity:   local gravitational field vector in world-coordinates
 
     The following simplifying assumptions are currently made, but they are all very easy to remove later if needed:
+        - Translational drag acts at the center of mass
         - Rotation of the Earth is negligible (no global centripetal or Coriolis effects)
         - Gravity field is uniform over the operating region
         - Translational and angular drag are both approximately linear in twist
@@ -71,7 +72,7 @@ class Model(object):
             thr = self.thrusters[key]
             eff = np.clip(efforts[key], thr.min_effort, thr.max_effort)
             thrusts[i] = thr.thrust_from_effort(eff)
-            reactions[i] = thr.reaction_from_effort(eff)
+            reactions[i] = thr.reaction_coeff * thrusts[i]
 
         # Sum up thruster forces and torques in body-coordinates
         thr_force = self.B_direcs.dot(thrusts)
