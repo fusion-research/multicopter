@@ -24,7 +24,16 @@ class Model(object):
     """
     def __init__(self, thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, -9.81]):
         self.thrusters = thrusters
-        self.thruster_keys = self.thrusters.keys()  # this list assures the ordering of the thrusters for the B matrices
+        self.thruster_keys = self.thrusters.keys()
+        self.thruster_list = [self.thrusters[key] for key in self.thruster_keys]  # assures consistent ordering for the B matrices, etc...
+        self.thrust_lims = np.array([(thr.min_thrust, thr.max_thrust) for thr in self.thruster_list])
+        self.reaction_coeffs = np.array([thr.reaction_coeff for thr in self.thruster_list])
+        self.B_direcs = np.transpose([thr.direction for thr in self.thruster_list])
+        self.B_levers = np.transpose([np.cross(thr.position, thr.direction) for thr in self.thruster_list])
+        self.thrusts_from_efforts = lambda efforts: np.clip([self.thrusters[key].thrust_from_effort(efforts[key]) for key in self.thruster_keys],
+                                                            self.thrust_lims[:, 0], self.thrust_lims[:, 1])
+        self.wrench_from_thrusts = lambda thrusts: motion.Wrench(self.B_direcs.dot(thrusts),
+                                                                 self.B_levers.dot(thrusts) + self.B_direcs.dot(self.reaction_coeffs * thrusts))
         self.mass = float(mass)
         self.invmass = 1 / self.mass
         self.inertia = np.array(inertia, dtype=np.float64)
@@ -32,12 +41,6 @@ class Model(object):
         self.drag_lin = np.array(drag_lin, dtype=np.float64)
         self.drag_ang = np.array(drag_ang, dtype=np.float64)
         self.gravity = np.array(gravity, dtype=np.float64)
-        self.B_direcs = np.zeros((3, len(self.thrusters)), dtype=np.float64)
-        self.B_levers = np.zeros((3, len(self.thrusters)), dtype=np.float64)
-        for i, key in enumerate(self.thruster_keys):
-            thr = self.thrusters[key]
-            self.B_direcs[:, i] = thr.direction
-            self.B_levers[:, i] = np.cross(thr.position, thr.direction)
 
     def step_dynamics(self, state, efforts, dt, wind_wrench=None):
         """
@@ -65,18 +68,8 @@ class Model(object):
         wind_wrench: Wrench object for the global wind (external disturbance) in world-coordinates, or None
 
         """
-        # Convert efforts to vector of thrusts
-        thrusts = np.zeros(len(self.thrusters), dtype=np.float64)
-        reactions = np.zeros(len(self.thrusters), dtype=np.float64)
-        for i, key in enumerate(self.thruster_keys):
-            thr = self.thrusters[key]
-            eff = np.clip(efforts[key], thr.min_effort, thr.max_effort)
-            thrusts[i] = thr.thrust_from_effort(eff)
-            reactions[i] = thr.reaction_coeff * thrusts[i]
-
         # Sum up thruster forces and torques in body-coordinates
-        thr_force = self.B_direcs.dot(thrusts)
-        thr_torque = self.B_levers.dot(thrusts) + self.B_direcs.dot(reactions)
+        thr_wrench = self.wrench_from_thrusts(self.thrusts_from_efforts(efforts))
 
         # Sum up drag force and torque in body-coordinates
         drag_force = -self.drag_lin * state.twist.lin
@@ -98,8 +91,8 @@ class Model(object):
         pose_ang_deriv = np.copy(state.twist.ang)  # as a member of the Lie algebra
 
         # Twist time derivative
-        twist_lin_deriv = self.invmass * (thr_force + drag_force + grav_force + wind_force) - np.cross(state.twist.ang, state.twist.lin)
-        twist_ang_deriv = self.invinertia.dot(thr_torque + drag_torque + wind_torque - np.cross(state.twist.ang, self.inertia.dot(state.twist.ang)))
+        twist_lin_deriv = self.invmass * (thr_wrench.lin + drag_force + grav_force + wind_force) - np.cross(state.twist.ang, state.twist.lin)
+        twist_ang_deriv = self.invinertia.dot(thr_wrench.ang + drag_torque + wind_torque - np.cross(state.twist.ang, self.inertia.dot(state.twist.ang)))
 
         # Return a StateDeriv object
         return motion.StateDeriv(motion.Twist(pose_lin_deriv, pose_ang_deriv),
