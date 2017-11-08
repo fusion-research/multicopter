@@ -8,6 +8,7 @@ class Thruster(object):
 
     position:           3-vector to the center of this thruster in body-coordinates
     thrust_from_effort: function that takes an effort value and returns a thrust value
+    effort_from_thrust: function inverse of thrust_from_effort
     reaction_coeff:     the drag-induced propeller reaction torque is reaction_coeff * thrust
     max_effort:         maximum effort commandable
     min_effort:         minimum effort commandable (can be negative)
@@ -22,13 +23,15 @@ class Thruster(object):
         - Assume negligible motor magnetic leakage
 
     """
-    def __init__(self, position, thrust_from_effort, reaction_coeff, max_effort, min_effort=0, direction=[0, 0, 1]):
+    def __init__(self, position, thrust_from_effort, effort_from_thrust, reaction_coeff, max_effort, min_effort=0, direction=[0, 0, 1]):
         self.position = np.array(position, dtype=np.float64)
         self.thrust_from_effort = thrust_from_effort
+        self.effort_from_thrust = effort_from_thrust
         self.reaction_coeff = float(reaction_coeff)
         self.max_effort = float(max_effort)
         self.min_effort = float(min_effort)
         self.direction = np.array(direction, dtype=np.float64) / npl.norm(direction)
+        if np.any(np.isnan(self.direction)): raise ValueError("Invalid thruster direction: {}".format(direction))
 
         # These are also convenient to store for use by thrust allocator
         self.max_thrust = self.thrust_from_effort(self.max_effort)

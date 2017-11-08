@@ -33,10 +33,14 @@ class Model(object):
         # Memoize these
         self.invmass = 1 / self.mass
         self.invinertia = npl.inv(self.inertia)
+        self.gmag = npl.norm(self.gravity)
+        if self.gmag != 0: self.gdir = self.gravity / self.gmag
+        else: self.gdir = np.zeros(3, dtype=np.float64)
 
         # Extract thruster information into ordered arrays for consistent and efficient internal use
         self.thruster_keys = self.thrusters.keys()
         self.thruster_list = [self.thrusters[key] for key in self.thruster_keys]
+        self.thruster_positions = np.array([thr.position for thr in self.thruster_list])
         self.thrust_limits = np.array([(thr.min_thrust, thr.max_thrust) for thr in self.thruster_list])
         self.reaction_coeffs = np.array([thr.reaction_coeff for thr in self.thruster_list])
         self.B_direcs = np.transpose([thr.direction for thr in self.thruster_list])
@@ -51,7 +55,7 @@ class Model(object):
     def step_dynamics(self, state, efforts, dt, wind_wrench=None):
         """
         Returns a State object containing the multicopter state dt seconds into the future.
-        The vector parts of the state are Euler integrated, but the quaternion part is stepped by local linearization.
+        The vector parts of the state are half-Verlet integrated, and the quaternion part is stepped by local linearization.
 
         state:       State object with the current multicopter state
         efforts:     dictionary of effort commands to each thruster keyed by thruster ID
