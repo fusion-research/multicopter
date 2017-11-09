@@ -1,42 +1,41 @@
 #!/usr/bin/python
 """
 Script for ~iNtErAcTiVe~ realtime multicopter simulation.
+To install dependencies on Ubuntu 14.04+:
+    pip install mayavi
+    sudo apt-get install dkms
+    sudo git clone https://github.com/paroj/xpad.git /usr/src/xpad-0.4
+    sudo dkms install -m xpad -v 0.4
+    sudo modprobe xpad (might need to turn off "secure boot" in BIOS)
+    reboot computer and then plug in an Xbox 360/One gamepad via USB
+    press the big X button, light should glow solid (not flashing)
 
 """
 from __future__ import division
+import threading, os
+from collections import deque
 import numpy as np; npl = np.linalg
 
+import vtk
 from mayavi import mlab
 from tvtk.tools import visual
 
 from multicopter import motion
 from multicopter.bois import hexboi
 from multicopter.controller import Controller
+from multicopter.inputs import devices, GamePad, get_gamepad
 
 # Send pointlessly spammed mayavi warnings to the shadow realm
-import os, vtk
 if os.path.exists("/dev/null"): shadow_realm = "/dev/null"
 else: shadow_realm = "c:\\nul"
 mlab_warning_output = vtk.vtkFileOutputWindow()
 mlab_warning_output.SetFileName(shadow_realm)
 vtk.vtkOutputWindow().SetInstance(mlab_warning_output)
 
-# Configure controller (temporarily with exact model knowledge)
-kp = [0, 0, 0, 0.5, 0.5, 0.5]
-kd = [0, 0, 10, 0.1, 0.1, 0.1]
-controller = Controller(hexboi, kp, kd)
-
-# Scheduled external disturbance wrench
-wind = lambda t: None
-
-# Initial condition
-state = motion.State(motion.Pose([10, 10, 10], [0, 0, 0, 1]),
-                     motion.Twist([0, 0, 0], [0, 0, 0]),
-                     0.0)
-
 # Main display set-up
 fig = mlab.figure(size=(500, 500), bgcolor=(0.1, 0.1, 0.1))
 visual.set_viewer(fig)
+camera_follow = True
 
 # Environment display set-up
 building_grid = (4, 4)
@@ -57,66 +56,127 @@ ground_xx, ground_yy = map(np.transpose, np.meshgrid(np.linspace(np.min(building
 mlab.surf(ground_xx, ground_yy, np.zeros_like(ground_xx), color=(0, 0.2, 0.2), warp_scale=1)
 
 # Multicopter display set-up
-copter_forward = np.transpose([(0, 0, 0), (1.1*npl.norm(hexboi.thruster_positions[0, :2]), 0, 0)])
-copter_forward_plot = mlab.plot3d(copter_forward[0, :], copter_forward[1, :], copter_forward[2, :], line_width=5, color=(1, 0, 1))
-copter_body = np.vstack(([0, 0, 0], hexboi.thruster_positions)).T
-copter_body_plot = mlab.points3d(copter_body[0, :], copter_body[1, :], copter_body[2, :], scale_factor=0.15)
-copter_body_plot.glyph.scale_mode = 'scale_by_vector'
-copter_body_plot.mlab_source.dataset.point_data.scalars = [1, 1, 0.7, 0.7, 0.7, 0.7, 1, 0]  # hack to individually color points
+copter_radius = 1.1 * npl.norm(hexboi.thruster_positions[0, :2])
+copter_axes = np.vstack(([(0, 0, copter_radius), (0, 0, 0), (copter_radius, 0, 0)], hexboi.thruster_positions)).T
+copter_axes_plot = mlab.plot3d(copter_axes[0, :], copter_axes[1, :], copter_axes[2, :], line_width=5, color=(1, 0, 1))
+copter_nodes = np.vstack(([0, 0, 0], hexboi.thruster_positions, [0, 0, copter_radius])).T
+copter_nodes_plot = mlab.points3d(copter_nodes[0, :], copter_nodes[1, :], copter_nodes[2, :], scale_factor=0.15)
+copter_nodes_plot.glyph.scale_mode = "scale_by_vector"
+copter_nodes_plot.mlab_source.dataset.point_data.scalars = [1, 1, 0.7, 0.7, 0.7, 0.7, 1, 0]  # hack to individually color points
 
-# User interface set-up (hack to override mayavi default keyboard controls)
-camera_follow = True
-command = [(0, 0, 0), 0]
+# User interface config
+input_type = "keyboard"
+for device in devices:
+    if type(device) == GamePad:
+        input_type = "gamepad"
+print "Using input:", input_type
+
+# User interface keyboard set-up (hack to override mayavi default keyboard controls)
 original_keyPressEvent = fig.scene._vtk_control.keyPressEvent
 def keyPressEvent(e):
-    global camera_follow, command
-    k = str(e.text())
-    if k == 'f':
-        if camera_follow: camera_follow = False
-        else: camera_follow = True
-    elif k == 'w':
-        command = [np.deg2rad((0, 45, 0)), 0]
-    elif k == 's':
-        command = [np.deg2rad((0, -45, 0)), 0]
-    elif k == 'a':
-        command = [np.deg2rad((-45, 0, 0)), 0]
-    elif k == 'd':
-        command = [np.deg2rad((45, 0, 0)), 0]
-    elif k == 'q':
-        command = [np.deg2rad((0, 0, 90)), 0]
-    elif k == 'e':
-        command = [np.deg2rad((0, 0, -90)), 0]
-    elif k == '=':
-        command = [np.deg2rad((0, 0, 0)), 5]
-    elif k == '-':
-        command = [np.deg2rad((0, 0, 0)), -5]
-    elif k == ' ':
-        command = [np.deg2rad((0, 0, 0)), 0]
-    else:
-        # original_keyPressEvent(e)
-        print "Got unknown keypress: ", k
+    global state, command, camera_follow
+    if input_type == "keyboard":
+        k = str(e.text())
+        if k == 'f':
+            if camera_follow: camera_follow = False
+            else: camera_follow = True
+        elif k == 'h':
+            state = state0  # warning, this is not a copy
+            command = [[0, 0, 0], 0]
+        elif k == 'w':
+            command = [[0, 45, 0], 0]
+        elif k == 's':
+            command = [[0, -45, 0], 0]
+        elif k == 'a':
+            command = [[-45, 0, 0], 0]
+        elif k == 'd':
+            command = [[45, 0, 0], 0]
+        elif k == 'q':
+            command = [[0, 0, 90], 0]
+        elif k == 'e':
+            command = [[0, 0, -90], 0]
+        elif k == '=':
+            command = [[0, 0, 0], 5]
+        elif k == '-':
+            command = [[0, 0, 0], -5]
+        elif k == ' ':
+            command = [[0, 0, 0], 0]
+        else:
+            original_keyPressEvent(e)
 fig.scene._vtk_control.keyPressEvent = keyPressEvent
 
+# User interface gamepad set-up
+gp_lim = 32767
+gp_dead = 0.1
+gp_buff = deque()
+def gamepad_thread():
+    global gp_buff
+    while True:
+        gp_buff.appendleft(get_gamepad()[0])
+if input_type == "gamepad":
+    threading.Thread(target=gamepad_thread).start()
+
+# Configure multicopter controller (temporarily with exact model knowledge)
+kp = [0, 0, 0, 0.5, 0.5, 0.5]
+kd = [0, 0, 10, 0.1, 0.1, 0.1]
+controller = Controller(hexboi, kp, kd)
+max_tilt = 60  # deg
+max_ascent = 4  # m/s
+
+# Scheduled external disturbance wrench
+wind = lambda t: None
+
+# Initial condition
+state0 = motion.State(motion.Pose([10, 10, 10], [0, 0, 0, 1]),
+                      motion.Twist([0, 0, 0], [0, 0, 0]),
+                      0.0)
+state = state0  # warning, this is not a copy
+command = [[0, 0, 0], 0]
+
 # Simulation
-dt = 0.03
+dt = 0.03  # ~30 FPS
 @mlab.animate(delay=int(dt*1000))
 def simulate():
-    global state, camera_follow
+    global state, command, camera_follow
     while True:
 
-        # Apply action and step simulation
-        efforts = controller.joy_control(state, command[0], command[1])
+        # Execute gamepad buffer
+        while gp_buff:
+            gp_ev = gp_buff.pop()
+            frac = gp_ev.state / gp_lim
+            if gp_ev.code == "ABS_RX":
+                if np.abs(frac) > gp_dead: command[0][0] = frac*max_tilt
+                else: command[0][0] = 0
+            elif gp_ev.code == "ABS_RY":
+                if np.abs(frac) > gp_dead: command[0][1] = -frac*max_tilt
+                else: command[0][1] = 0
+            elif gp_ev.code == "ABS_X":
+                if np.abs(frac) > gp_dead: command[0][2] = -frac*max_tilt
+                else: command[0][2] = 0
+            elif gp_ev.code == "ABS_Y":
+                if np.abs(frac) > gp_dead: command[1] = -frac*max_ascent
+                else: command[1] = 0
+            elif gp_ev.code == "BTN_EAST" and gp_ev.state == 1:
+                state = state0  # warning, this is not a copy
+                command = [[0, 0, 0], 0]
+            elif gp_ev.code == "BTN_SOUTH" and gp_ev.state == 1:
+                if camera_follow: camera_follow = False
+                else: camera_follow = True
+
+        # Apply controller's decision and step simulation
+        efforts = controller.joy_control(state, np.deg2rad(command[0]), command[1])
         state = hexboi.step_dynamics(state, efforts, dt, wind(state.time))
-        if state.pose.lin[2] < -0.1: state.pose.lin[2] = 0
+        if state.pose.lin[2] < -0.1: state.pose.lin[2] = 0  # basic ground plane
 
         # Redraw multicopter in scene and move camera accordingly
         R = motion.rotmat_from_quaternion(state.pose.ang)
-        copter_body_world = state.pose.lin.reshape(3, 1) + R.dot(copter_body)
-        copter_forward_world = state.pose.lin.reshape(3, 1) + R.dot(copter_forward)
-        copter_body_plot.mlab_source.set(x=copter_body_world[0, :], y=copter_body_world[1, :], z=copter_body_world[2, :])
-        copter_forward_plot.mlab_source.set(x=copter_forward_world[0, :], y=copter_forward_world[1, :], z=copter_forward_world[2, :])
+        copter_nodes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_nodes)
+        copter_axes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_axes)
+        copter_nodes_plot.mlab_source.set(x=copter_nodes_world[0, :], y=copter_nodes_world[1, :], z=copter_nodes_world[2, :])
+        copter_axes_plot.mlab_source.set(x=copter_axes_world[0, :], y=copter_axes_world[1, :], z=copter_axes_world[2, :])
         if camera_follow: mlab.view(focalpoint=state.pose.lin.tolist(), distance=15)
         yield
 
+# Mayavi has the outermost loop keeping the program alive
 simulate()
 mlab.show()
