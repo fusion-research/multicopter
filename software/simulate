@@ -37,6 +37,7 @@ fig = mlab.figure(size=(500, 500), bgcolor=(0.1, 0.1, 0.1))
 visual.set_viewer(fig)
 camera_follow = True
 time_flag = False
+terminate_flag = False
 
 # Environment display set-up
 building_grid = (4, 4)
@@ -113,9 +114,10 @@ gp_lim = 32767
 gp_dead = 0.1
 gp_buff = deque()
 def gamepad_thread():
-    global gp_buff
+    global gp_buff, terminate_flag
     while True:
         gp_buff.appendleft(get_gamepad()[0])
+        if terminate_flag: break
 if input_type == "gamepad":
     threading.Thread(target=gamepad_thread).start()
 
@@ -142,7 +144,7 @@ mlab.view(azimuth=180)
 dt = 0.04
 @mlab.animate(delay=int(dt*1000))
 def simulate():
-    global state, command, yaw_command_vel, camera_follow, time_flag
+    global state, command, yaw_command_vel, camera_follow, time_flag, terminate_flag
     while True:
         start_time = time.time()
 
@@ -173,6 +175,9 @@ def simulate():
             elif gp_ev.code == "BTN_SOUTH" and gp_ev.state == 1:
                 if camera_follow: camera_follow = False
                 else: camera_follow = True
+            elif gp_ev.code == "BTN_START" and gp_ev.state == 1:
+                terminate_flag = True
+                print "PROGRAM TERMINATED. Close figure windows to exit."
 
         # Apply controller's decision and step simulation
         command[0][2] = np.mod(command[0][2] + command[2] * dt, 360)
@@ -199,6 +204,8 @@ def simulate():
                 print "WARNING: Simulation is not keeping up with realtime."
                 time_flag = True
 
+        # End program or yield sim loop
+        if terminate_flag: break
         yield
 
 # Mayavi has the outermost loop keeping the program alive
