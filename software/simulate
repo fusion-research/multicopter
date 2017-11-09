@@ -86,27 +86,27 @@ def keyPressEvent(e):
             else: camera_follow = True
         elif k == 'h':
             state = state0  # warning, this is not a copy
-            command = [[0, 0, 0], 0]
+            command = [[0, 0, 0], 0, 0]
         elif k == 'w':
-            command = [[0, 45, 0], 0]
+            command = [[0, 45, 0], 0, 0]
         elif k == 's':
-            command = [[0, -45, 0], 0]
+            command = [[0, -45, 0], 0, 0]
         elif k == 'a':
-            command = [[-45, 0, 0], 0]
+            command = [[-45, 0, 0], 0, 0]
         elif k == 'd':
-            command = [[45, 0, 0], 0]
+            command = [[45, 0, 0], 0, 0]
         elif k == 'q':
-            command = [[0, 0, 90], 0]
+            command = [[0, 0, 90], 0, 0]
         elif k == 'e':
-            command = [[0, 0, -90], 0]
+            command = [[0, 0, -90], 0, 0]
         elif k == '=':
-            command = [[0, 0, 0], 5]
+            command = [[0, 0, 0], 5, 0]
         elif k == '-':
-            command = [[0, 0, 0], -5]
+            command = [[0, 0, 0], -5, 0]
         elif k == ' ':
-            command = [[0, 0, 0], 0]
-        else:
-            original_keyPressEvent(e)
+            command = [[0, 0, 0], 0, 0]
+        # else:
+            # original_keyPressEvent(e)
 fig.scene._vtk_control.keyPressEvent = keyPressEvent
 
 # User interface gamepad set-up
