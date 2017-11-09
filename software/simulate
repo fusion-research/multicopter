@@ -12,7 +12,7 @@ To install dependencies on Ubuntu 14.04+:
 
 """
 from __future__ import division
-import threading, os
+import threading, os, time
 from collections import deque
 import numpy as np; npl = np.linalg
 
@@ -36,6 +36,7 @@ vtk.vtkOutputWindow().SetInstance(mlab_warning_output)
 fig = mlab.figure(size=(500, 500), bgcolor=(0.1, 0.1, 0.1))
 visual.set_viewer(fig)
 camera_follow = True
+time_flag = False
 
 # Environment display set-up
 building_grid = (4, 4)
@@ -57,12 +58,14 @@ mlab.surf(ground_xx, ground_yy, np.zeros_like(ground_xx), color=(0, 0.2, 0.2), w
 
 # Multicopter display set-up
 copter_radius = 1.1 * npl.norm(hexboi.thruster_positions[0, :2])
-copter_axes = np.vstack(([(0, 0, copter_radius), (0, 0, 0), (copter_radius, 0, 0)], hexboi.thruster_positions)).T
+copter_axes = np.vstack(([(0, 0, 0), (copter_radius, 0, 0)], hexboi.thruster_positions, (copter_radius, 0, 0))).T
 copter_axes_plot = mlab.plot3d(copter_axes[0, :], copter_axes[1, :], copter_axes[2, :], line_width=5, color=(1, 0, 1))
-copter_nodes = np.vstack(([0, 0, 0], hexboi.thruster_positions, [0, 0, copter_radius])).T
+copter_nodes = np.vstack(([0, 0, 0], hexboi.thruster_positions)).T
 copter_nodes_plot = mlab.points3d(copter_nodes[0, :], copter_nodes[1, :], copter_nodes[2, :], scale_factor=0.15)
 copter_nodes_plot.glyph.scale_mode = "scale_by_vector"
-copter_nodes_plot.mlab_source.dataset.point_data.scalars = [1, 1, 0.7, 0.7, 0.7, 0.7, 1, 0]  # hack to individually color points
+copter_nodes_plot.mlab_source.dataset.point_data.scalars = [0, 1, 0.7, 0.7, 0.7, 0.7, 1, 0]  # hack to individually color points
+copter_vecs = [np.vstack((thr.position, thr.position+0*thr.direction)).T for thr in hexboi.thruster_list]
+copter_vecs_plots = [mlab.plot3d(vec[0, :], vec[1, :], vec[2, :], color=(1, 1, 1)) for vec in copter_vecs]
 
 # User interface config
 input_type = "keyboard"
@@ -127,18 +130,21 @@ max_ascent = 4  # m/s
 wind = lambda t: None
 
 # Initial condition
-state0 = motion.State(motion.Pose([10, 10, 10], [0, 0, 0, 1]),
+state0 = motion.State(motion.Pose([0, 0, 10], [0, 0, 0, 1]),
                       motion.Twist([0, 0, 0], [0, 0, 0]),
                       0.0)
 state = state0  # warning, this is not a copy
-command = [[0, 0, 0], 0]
+command = [[0, 0, 0], 0, 0]
+yaw_command_vel = 0
+mlab.view(azimuth=180)
 
 # Simulation
-dt = 0.03  # ~30 FPS
+dt = 0.04
 @mlab.animate(delay=int(dt*1000))
 def simulate():
-    global state, command, camera_follow
+    global state, command, yaw_command_vel, camera_follow, time_flag
     while True:
+        start_time = time.time()
 
         # Execute gamepad buffer
         while gp_buff:
@@ -150,21 +156,27 @@ def simulate():
             elif gp_ev.code == "ABS_RY":
                 if np.abs(frac) > gp_dead: command[0][1] = -frac*max_tilt
                 else: command[0][1] = 0
-            elif gp_ev.code == "ABS_X":
-                if np.abs(frac) > gp_dead: command[0][2] = -frac*max_tilt
-                else: command[0][2] = 0
+            elif gp_ev.code == "ABS_RZ":
+                frac = gp_ev.state / 1023
+                if np.abs(frac) > gp_dead/5: command[2] = -frac*360
+                else: command[2] = 0
+            elif gp_ev.code == "ABS_Z":
+                frac = gp_ev.state / 1023
+                if np.abs(frac) > gp_dead/5: command[2] = frac*360
+                else: command[2] = 0
             elif gp_ev.code == "ABS_Y":
                 if np.abs(frac) > gp_dead: command[1] = -frac*max_ascent
                 else: command[1] = 0
             elif gp_ev.code == "BTN_EAST" and gp_ev.state == 1:
                 state = state0  # warning, this is not a copy
-                command = [[0, 0, 0], 0]
+                command = [[0, 0, 0], 0, 0]
             elif gp_ev.code == "BTN_SOUTH" and gp_ev.state == 1:
                 if camera_follow: camera_follow = False
                 else: camera_follow = True
 
         # Apply controller's decision and step simulation
-        efforts = controller.joy_control(state, np.deg2rad(command[0]), command[1])
+        command[0][2] = np.mod(command[0][2] + command[2] * dt, 360)
+        efforts = controller.joy_control(state, np.deg2rad(command[0]), command[1], np.deg2rad(command[2]))
         state = hexboi.step_dynamics(state, efforts, dt, wind(state.time))
         if state.pose.lin[2] < -0.1: state.pose.lin[2] = 0  # basic ground plane
 
@@ -172,9 +184,21 @@ def simulate():
         R = motion.rotmat_from_quaternion(state.pose.ang)
         copter_nodes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_nodes)
         copter_axes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_axes)
+        copter_vecs_world = [state.pose.lin.reshape(3, 1) + R.dot(vec) for vec in copter_vecs]
         copter_nodes_plot.mlab_source.set(x=copter_nodes_world[0, :], y=copter_nodes_world[1, :], z=copter_nodes_world[2, :])
         copter_axes_plot.mlab_source.set(x=copter_axes_world[0, :], y=copter_axes_world[1, :], z=copter_axes_world[2, :])
+        for i, vec_plot in enumerate(copter_vecs_plots):
+            thr = hexboi.thruster_list[i]
+            copter_vecs[i][:, 1] = thr.position + (efforts[hexboi.thruster_keys[i]] / thr.max_effort) * thr.direction
+            vec_plot.mlab_source.set(x=copter_vecs_world[i][0, :], y=copter_vecs_world[i][1, :], z=copter_vecs_world[i][2, :])
         if camera_follow: mlab.view(focalpoint=state.pose.lin.tolist(), distance=15)
+
+        # Warning if not realtime
+        if (time.time() - start_time) > 1.1*dt:
+            if not time_flag:
+                print "WARNING: Simulation is not keeping up with realtime."
+                time_flag = True
+
         yield
 
 # Mayavi has the outermost loop keeping the program alive

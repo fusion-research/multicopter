@@ -32,7 +32,7 @@ class Controller(object):
         self.thrust_alloc_guess = np.mean(self.model.thrust_limits, axis=1)
 
         # Function for Lie algebraic orientation error computation
-        self.ori_error = lambda qdes, q: motion.rotvec_from_quaternion(motion.quaternion_multiply(qdes, motion.quaternion_inverse(q)))
+        self.ori_error = lambda qdes, q: motion.rotvec_from_quaternion(motion.quaternion_multiply(motion.quaternion_inverse(q), qdes))
 
     def effort_allocator(self, wrench):
         """
@@ -61,19 +61,20 @@ class Controller(object):
             efforts[key] = self.model.thrusters[key].effort_from_thrust(thrust_opt.x[i])
         return efforts
 
-    def joy_control(self, state, rpy, ascent):
+    def joy_control(self, state, rpy, ascent, yvel):
         """
         Returns the efforts that should be applied to achieve a specified attitude and ascension rate.
         This is intended for human-in-the-loop control via a joystick.
 
         state:  the current state of the multicopter in a State object
-        rpy:    tuple of roll, pitch and yaw Euler angles defining the desired attitude
+        rpy:    tuple of roll, pitch and yaw Euler angles in radians defining the desired attitude
         ascent: signed scalar for the desired world z-velocity (altitude rate of change)
+        yvel:   signed scalar for the desired yaw velocity in radians per unit time
 
         """
         ctilt = -self.model.gdir.dot(state.pose.rotate_vector([0, 0, 1]))
         state_ascent = -self.model.gdir.dot(state.pose.rotate_vector(state.twist.lin))
         if np.isclose(ctilt, 0): response_force = [0, 0, 0]
         else: response_force = [0, 0, (self.model.mass*self.model.gmag + self.kd[2]*(ascent - state_ascent)) / ctilt]
-        response_torque = self.kp[3:]*self.ori_error(motion.quaternion_from_euler(*rpy), state.pose.ang) - self.kd[3:]*state.twist.ang
+        response_torque = self.kp[3:]*self.ori_error(motion.quaternion_from_euler(*rpy), state.pose.ang) + self.kd[3:]*([0, 0, yvel] - state.twist.ang)
         return self.effort_allocator(motion.Wrench(response_force, response_torque))
