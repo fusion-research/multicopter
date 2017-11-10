@@ -44,7 +44,7 @@ class Controller(object):
         thrust_opt = minimize(fun=self.thrust_alloc_cost, jac=self.thrust_alloc_cost_jac, args=wrench,
                               bounds=self.model.thrust_limits, x0=self.thrust_alloc_guess, method="SLSQP", tol=1e-8)
         if not thrust_opt.success:
-            print "\n----------"
+            print "----------"
             print "WARNING: Thrust allocator optimization failed."
             print "--"
             print "Wrench requested:"
@@ -55,7 +55,7 @@ class Controller(object):
             print self.thrust_alloc_guess, self.thrust_alloc_cost(self.thrust_alloc_guess, wrench)
             print "Thrusts chosen and final cost:"
             print thrust_opt.x, self.thrust_alloc_cost(thrust_opt.x, wrench)
-            print "----------\n"
+            print "----------"
         efforts = {}
         for i, key in enumerate(self.model.thruster_keys):
             efforts[key] = self.model.thrusters[key].effort_from_thrust(thrust_opt.x[i])

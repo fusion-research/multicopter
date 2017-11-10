@@ -3,8 +3,8 @@ A quadcopter model and a hexcopter model are configured here for easy access and
 
 """
 from __future__ import division
-from collections import OrderedDict
 import numpy as np; npl = np.linalg
+from collections import OrderedDict
 
 from model import Model
 from thruster import Thruster

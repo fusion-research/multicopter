@@ -60,7 +60,12 @@ class State(object):
     def __init__(self, pose, twist, time):
         self.pose = pose
         self.twist = twist
-        self.time = float(time)
+        self.time = np.float64(time)
+
+    def copy(self):
+        return State(Pose(np.copy(self.pose.lin), np.copy(self.pose.ang)),
+                     Twist(np.copy(self.twist.lin), np.copy(self.twist.ang)),
+                     np.copy(self.time))
 
 
 class Wrench(object):
@@ -106,7 +111,7 @@ class StateDeriv(object):
     def __init__(self, pose_deriv, twist_deriv, time):
         self.pose_deriv = pose_deriv
         self.twist_deriv = twist_deriv
-        self.time = float(time)
+        self.time = np.float64(time)
 
 
 def quaternion_inverse(q):
@@ -184,3 +189,10 @@ def quaternion_from_euler(roll, pitch, yaw):
                      cy*cr*sp + sy*sr*cp,
                      sy*cr*cp - cy*sr*sp,
                      cy*cr*cp + sy*sr*sp], dtype=np.float64)
+
+def unwrap_angle(ang):
+    """
+    Returns an equivalent angle to ang in radians on [-np.pi, np.pi].
+
+    """
+    return np.mod(ang + np.pi, 2*np.pi) - np.pi

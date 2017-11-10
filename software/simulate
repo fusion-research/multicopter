@@ -141,7 +141,7 @@ yaw_command_vel = 0
 mlab.view(azimuth=180)
 
 # Simulation
-dt = 0.04
+dt = 0.05
 @mlab.animate(delay=int(dt*1000))
 def simulate():
     global state, command, yaw_command_vel, camera_follow, time_flag, terminate_flag
@@ -201,7 +201,7 @@ def simulate():
         # Warning if not realtime
         if (time.time() - start_time) > 1.1*dt:
             if not time_flag:
-                print "WARNING: Simulation is not keeping up with realtime."
+                print "WARNING: Simulation is not always keeping up with realtime."
                 time_flag = True
 
         # End program or yield sim loop

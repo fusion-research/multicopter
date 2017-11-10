@@ -27,12 +27,12 @@ class Thruster(object):
         self.position = np.array(position, dtype=np.float64)
         self.thrust_from_effort = thrust_from_effort
         self.effort_from_thrust = effort_from_thrust
-        self.reaction_coeff = float(reaction_coeff)
-        self.max_effort = float(max_effort)
-        self.min_effort = float(min_effort)
+        self.reaction_coeff = np.float64(reaction_coeff)
+        self.max_effort = np.float64(max_effort)
+        self.min_effort = np.float64(min_effort)
         self.direction = np.array(direction, dtype=np.float64) / npl.norm(direction)
         if np.any(np.isnan(self.direction)): raise ValueError("Invalid thruster direction: {}".format(direction))
 
         # These are also convenient to store for use by thrust allocator
-        self.max_thrust = self.thrust_from_effort(self.max_effort)
-        self.min_thrust = self.thrust_from_effort(self.min_effort)
+        self.max_thrust = np.float64(self.thrust_from_effort(self.max_effort))
+        self.min_thrust = np.float64(self.thrust_from_effort(self.min_effort))

@@ -24,7 +24,7 @@ class Model(object):
     """
     def __init__(self, thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, -9.81]):
         self.thrusters = thrusters
-        self.mass = float(mass)
+        self.mass = np.float64(mass)
         self.inertia = np.array(inertia, dtype=np.float64)
         self.drag_lin = np.array(drag_lin, dtype=np.float64)
         self.drag_ang = np.array(drag_ang, dtype=np.float64)
