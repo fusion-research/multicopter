@@ -24,6 +24,7 @@ class Pilot(object):
     User interface for remote-controlling a multicopter.
     Call start_pilot_thread to begin filling an internal buffer with user input.
     Call control to get the efforts dictionary that should be implemented by the multicopter.
+    Call reset to snap the internal command state to some given state.
     Don't forget to call stop_pilot_thread when done!
 
     model:            a Model object for the multicopter
@@ -68,9 +69,9 @@ class Pilot(object):
         if self.input_device is None: raise IOError("FATAL: No valid input device is connected!")
 
         # Digital button code names
-        self.button_codes = {"A": "BTN_SOUTH", "B": "BTN_EAST", "X": "BTN_NORTH", "Y": "BTN_WEST",
-                             "L": "BTN_TL", "R": "BTN_TR", "SL": "BTN_SELECT", "SR": "BTN_START",
-                             "DV": "ABS_HAT0Y", "DH": "ABS_HAT0X"}
+        self.button_codes = {"BTN_SOUTH": "A", "BTN_EAST": "B", "BTN_NORTH": "X", "BTN_WEST": "Y",
+                             "BTN_TL": "L", "BTN_TR": "R", "BTN_SELECT": "SL", "BTN_START": "SR",
+                             "ABS_HAT0Y": "DV", "ABS_HAT0X": "DH"}
 
         # Analog input characteristics
         self.max_stick = 32767
@@ -159,6 +160,18 @@ class Pilot(object):
         self.buffer_size_flag = False
         self.cmd = None
 
+    def reset(self, state):
+        """
+        Snaps this pilot's command state back to the yaw, ascent, and time defined by state.
+        Clears the internal buffer.
+
+        state: State object that determines the initial yaw and ascent commands, and time
+
+        """
+        if self.cmd is None: raise AssertionError("FATAL: Cannot reset unless Pilot thread is running.")
+        self._execute_buffer(state.time - self.cmd.time)
+        self.cmd.reset(state)
+
     def _listen_xbox(self):
         try:
             while self.stay_alive:
@@ -177,21 +190,14 @@ class Pilot(object):
     def _execute_buffer(self, dt):
         while self.buffer:
             event = self.buffer.pop()
-
-            # Analog inputs
             if event.code == "ABS_Y": self.cmd.ascent_rate = -self._stick_frac(event.state) * self.max_ascent_rate
             elif event.code == "ABS_X": pass
             elif event.code == "ABS_RY": self.cmd.pitch = -self._stick_frac(event.state) * self.max_pitch
             elif event.code == "ABS_RX": self.cmd.roll = self._stick_frac(event.state) * self.max_roll
             elif event.code == "ABS_Z": self.cmd.yaw_rate = self._trigger_frac(event.state) * self.max_yaw_rate
             elif event.code == "ABS_RZ": self.cmd.yaw_rate = -self._trigger_frac(event.state) * self.max_yaw_rate
-            else:
-                # Digital inputs
-                for btn in self.button_callbacks:
-                    if self.button_codes[btn] == event.code:
-                        self.button_callbacks[btn](event.state)
-
-        # Update integrated command states
+            elif event.code in self.button_codes:
+                self.button_callbacks.get(self.button_codes[event.code], lambda val: None)(event.state)
         self.cmd.time = self.cmd.time + dt
         self.cmd.yaw = motion.unwrap_angle(self.cmd.yaw + dt*self.cmd.yaw_rate)
         self.cmd.ascent = self.cmd.ascent + dt*self.cmd.ascent_rate

@@ -28,11 +28,11 @@ def bcb_A(val):  # toggle camera following
     if val:
         if follow: follow = 0
         else: follow = 15
-def bcb_B(val):  # reset state
+def bcb_B(val):  # reset state and command
     global state
     if val:
         state = state0.copy()
-        pilot.cmd.reset(state0)
+        pilot.reset(state0)
 
 # User piloting config
 kp = [0, 0.5, 0.5, 0.5]  # [world_up, roll, pitch, yaw]
@@ -47,7 +47,7 @@ state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]),
                       motion.Twist([0, 0, 0], [0, 0, 0]),
                       0.0)
 state = state0.copy()
-follow = 15
+follow = 15  # m
 
 # Simulation loop function
 dt = 0.05
