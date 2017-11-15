@@ -1,6 +1,9 @@
 """
 To install Mayavi graphics software on Ubuntu >=14.04:
-    pip install mayavi
+    sudo apt-get install python-pip
+    sudo apt-get install python-vtk
+    sudo apt-get install libqt4-svg
+    sudo pip install mayavi pyside
 
 """
 from __future__ import division

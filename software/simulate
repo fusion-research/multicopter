@@ -7,6 +7,7 @@ See viz.py for Mayavi graphics installation instructions.
 """
 from __future__ import division
 import numpy as np; npl = np.linalg
+import time
 
 from multicopter.pilot import Pilot
 from multicopter.bois import hexboi as model
@@ -16,10 +17,7 @@ from multicopter import motion
 # Graphics / environment config
 building_spacing = 3
 building_size = (3, 3, 4)
-building_layout = [[1, 1, 1, 1],
-                   [1, 0, 1, 1],
-                   [1, 1, 0, 1],
-                   [1, 1, 1, 1]]
+building_layout = np.ones((10, 10))
 viz = Viz(model, building_layout, building_size, building_spacing)
 
 # User button press callbacks
@@ -49,15 +47,20 @@ state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]),
 state = state0.copy()
 follow = 15  # m
 
+# Simulation time and timestep
+t = time.time()
+dt = 0.01
+
 # Simulation loop function
-dt = 0.05
-@viz.animate(delay=int(dt*1000))
+@viz.animate(delay=50)  # ms (20 FPS is the best Mayavi can do)
 def simulate():
-    global state
+    global state, t
     while True:
-        efforts = pilot.control(state)
-        state = model.compute_next_state(state, efforts, dt, wind(state.time))
-        if state.pose.lin[2] < -0.05: state.pose.lin[2] = 0  # basic ground plane
+        while t < time.time():
+            efforts = pilot.control(state)
+            state = model.compute_next_state(state, efforts, dt, wind(state.time))
+            if state.pose.lin[2] < -0.05: state.pose.lin[2] = 0  # basic ground plane
+            t += dt
         viz.update_multicopter(state, efforts, follow)
         yield
 
