@@ -1,213 +1,70 @@
 #!/usr/bin/python
 """
 Script for ~iNtErAcTiVe~ realtime multicopter simulation.
-To install dependencies on Ubuntu 14.04+:
-    pip install mayavi
-    sudo apt-get install dkms
-    sudo git clone https://github.com/paroj/xpad.git /usr/src/xpad-0.4
-    sudo dkms install -m xpad -v 0.4
-    sudo modprobe xpad (might need to turn off "secure boot" in BIOS)
-    reboot computer and then plug in an Xbox 360/One gamepad via USB
-    press the big X button, light should glow solid (not flashing)
+See pilot.py for X-Box gamepad installation instructions.
+See viz.py for Mayavi graphics installation instructions.
 
 """
 from __future__ import division
-import threading, os, time
-from collections import deque
 import numpy as np; npl = np.linalg
 
-import vtk
-from mayavi import mlab
-from tvtk.tools import visual
-
+from multicopter.pilot import Pilot
+from multicopter.bois import hexboi as model
+from multicopter.viz import Viz
 from multicopter import motion
-from multicopter.bois import hexboi
-from multicopter.controller import Controller
-from multicopter.inputs import devices, GamePad, get_gamepad
 
-# Send pointlessly spammed mayavi warnings to the shadow realm
-if os.path.exists("/dev/null"): shadow_realm = "/dev/null"
-else: shadow_realm = "c:\\nul"
-mlab_warning_output = vtk.vtkFileOutputWindow()
-mlab_warning_output.SetFileName(shadow_realm)
-vtk.vtkOutputWindow().SetInstance(mlab_warning_output)
-
-# Main display set-up
-fig = mlab.figure(size=(500, 500), bgcolor=(0.1, 0.1, 0.1))
-visual.set_viewer(fig)
-camera_follow = True
-time_flag = False
-terminate_flag = False
-
-# Environment display set-up
-building_grid = (4, 4)
+# Graphics / environment config
+building_spacing = 3
 building_size = (3, 3, 4)
-building_alley = 3
-n_buildings = np.product(building_grid)
-building_colors = map(tuple, np.array((np.linspace(0.0, 0.0, n_buildings),
-                                       np.linspace(0.8, 0.3, n_buildings),
-                                       np.linspace(0.3, 0.8, n_buildings))).T)
-building_centers = np.zeros((n_buildings, 2))
-for i, x in enumerate(np.linspace(0, (building_grid[0]-1)*(building_size[0] + building_alley), building_grid[0])):
-    for j, y in enumerate(np.linspace(0, (building_grid[1]-1)*(building_size[1] + building_alley), building_grid[1])):
-        idx = building_grid[1]*i + j
-        building_centers[idx] = (x, y)
-        visual.box(x=x, y=y, z=building_size[2]/2, size=building_size, color=building_colors[idx])
-ground_xx, ground_yy = map(np.transpose, np.meshgrid(np.linspace(np.min(building_centers[:, 0]-5), np.max(building_centers[:, 0]+5), 5),
-                                         np.linspace(np.min(building_centers[:, 1]-5), np.max(building_centers[:, 1]+5), 5)))
-mlab.surf(ground_xx, ground_yy, np.zeros_like(ground_xx), color=(0, 0.2, 0.2), warp_scale=1)
+building_layout = [[1, 1, 1, 1],
+                   [1, 0, 1, 1],
+                   [1, 1, 0, 1],
+                   [1, 1, 1, 1]]
+viz = Viz(model, building_layout, building_size, building_spacing)
 
-# Multicopter display set-up
-copter_radius = 1.1 * npl.norm(hexboi.thruster_positions[0, :2])
-copter_axes = np.vstack(([(0, 0, 0), (copter_radius, 0, 0)], hexboi.thruster_positions, (copter_radius, 0, 0))).T
-copter_axes_plot = mlab.plot3d(copter_axes[0, :], copter_axes[1, :], copter_axes[2, :], line_width=5, color=(1, 0, 1))
-copter_nodes = np.vstack(([0, 0, 0], hexboi.thruster_positions)).T
-copter_nodes_plot = mlab.points3d(copter_nodes[0, :], copter_nodes[1, :], copter_nodes[2, :], scale_factor=0.15)
-copter_nodes_plot.glyph.scale_mode = "scale_by_vector"
-copter_nodes_plot.mlab_source.dataset.point_data.scalars = [0, 1, 0.7, 0.7, 0.7, 0.7, 1, 0]  # hack to individually color points
-copter_vecs = [np.vstack((thr.position, thr.position+0*thr.direction)).T for thr in hexboi.thruster_list]
-copter_vecs_plots = [mlab.plot3d(vec[0, :], vec[1, :], vec[2, :], color=(1, 1, 1)) for vec in copter_vecs]
+# User button press callbacks
+def bcb_A(val):  # toggle camera following
+    global follow
+    if val:
+        if follow: follow = 0
+        else: follow = 15
+def bcb_B(val):  # reset state
+    global state
+    if val:
+        state = state0.copy()
+        pilot.cmd.reset(state0)
 
-# User interface config
-input_type = "keyboard"
-for device in devices:
-    if type(device) == GamePad:
-        input_type = "gamepad"
-print "Using input:", input_type
-
-# User interface keyboard set-up (hack to override mayavi default keyboard controls)
-original_keyPressEvent = fig.scene._vtk_control.keyPressEvent
-def keyPressEvent(e):
-    global state, command, camera_follow
-    if input_type == "keyboard":
-        k = str(e.text())
-        if k == 'f':
-            if camera_follow: camera_follow = False
-            else: camera_follow = True
-        elif k == 'h':
-            state = state0  # warning, this is not a copy
-            command = [[0, 0, 0], 0, 0]
-        elif k == 'w':
-            command = [[0, 45, 0], 0, 0]
-        elif k == 's':
-            command = [[0, -45, 0], 0, 0]
-        elif k == 'a':
-            command = [[-45, 0, 0], 0, 0]
-        elif k == 'd':
-            command = [[45, 0, 0], 0, 0]
-        elif k == 'q':
-            command = [[0, 0, 90], 0, 0]
-        elif k == 'e':
-            command = [[0, 0, -90], 0, 0]
-        elif k == '=':
-            command = [[0, 0, 0], 5, 0]
-        elif k == '-':
-            command = [[0, 0, 0], -5, 0]
-        elif k == ' ':
-            command = [[0, 0, 0], 0, 0]
-        # else:
-            # original_keyPressEvent(e)
-fig.scene._vtk_control.keyPressEvent = keyPressEvent
-
-# User interface gamepad set-up
-gp_lim = 32767
-gp_dead = 0.1
-gp_buff = deque()
-def gamepad_thread():
-    global gp_buff, terminate_flag
-    while True:
-        gp_buff.appendleft(get_gamepad()[0])
-        if terminate_flag: break
-if input_type == "gamepad":
-    threading.Thread(target=gamepad_thread).start()
-
-# Configure multicopter controller (temporarily with exact model knowledge)
-kp = [0, 0, 0, 0.5, 0.5, 0.5]
-kd = [0, 0, 10, 0.1, 0.1, 0.1]
-controller = Controller(hexboi, kp, kd)
-max_tilt = 60  # deg
-max_ascent = 4  # m/s
+# User piloting config
+kp = [0, 0.5, 0.5, 0.5]  # [world_up, roll, pitch, yaw]
+kd = [10, 0.1, 0.1, 0.1]
+pilot = Pilot(model, kp, kd, button_callbacks={"A": bcb_A, "B": bcb_B})
 
 # Scheduled external disturbance wrench
 wind = lambda t: None
 
 # Initial condition
-state0 = motion.State(motion.Pose([0, 0, 10], [0, 0, 0, 1]),
+state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]),
                       motion.Twist([0, 0, 0], [0, 0, 0]),
                       0.0)
-state = state0  # warning, this is not a copy
-command = [[0, 0, 0], 0, 0]
-yaw_command_vel = 0
-mlab.view(azimuth=180)
+state = state0.copy()
+follow = 15
 
-# Simulation
+# Simulation loop function
 dt = 0.05
-@mlab.animate(delay=int(dt*1000))
+@viz.animate(delay=int(dt*1000))
 def simulate():
-    global state, command, yaw_command_vel, camera_follow, time_flag, terminate_flag
+    global state
     while True:
-        start_time = time.time()
-
-        # Execute gamepad buffer
-        while gp_buff:
-            gp_ev = gp_buff.pop()
-            frac = gp_ev.state / gp_lim
-            if gp_ev.code == "ABS_RX":
-                if np.abs(frac) > gp_dead: command[0][0] = frac*max_tilt
-                else: command[0][0] = 0
-            elif gp_ev.code == "ABS_RY":
-                if np.abs(frac) > gp_dead: command[0][1] = -frac*max_tilt
-                else: command[0][1] = 0
-            elif gp_ev.code == "ABS_RZ":
-                frac = gp_ev.state / 1023
-                if np.abs(frac) > gp_dead/5: command[2] = -frac*360
-                else: command[2] = 0
-            elif gp_ev.code == "ABS_Z":
-                frac = gp_ev.state / 1023
-                if np.abs(frac) > gp_dead/5: command[2] = frac*360
-                else: command[2] = 0
-            elif gp_ev.code == "ABS_Y":
-                if np.abs(frac) > gp_dead: command[1] = -frac*max_ascent
-                else: command[1] = 0
-            elif gp_ev.code == "BTN_EAST" and gp_ev.state == 1:
-                state = state0  # warning, this is not a copy
-                command = [[0, 0, 0], 0, 0]
-            elif gp_ev.code == "BTN_SOUTH" and gp_ev.state == 1:
-                if camera_follow: camera_follow = False
-                else: camera_follow = True
-            elif gp_ev.code == "BTN_START" and gp_ev.state == 1:
-                terminate_flag = True
-                print "PROGRAM TERMINATED. Close figure windows to exit."
-
-        # Apply controller's decision and step simulation
-        command[0][2] = np.mod(command[0][2] + command[2] * dt, 360)
-        efforts = controller.joy_control(state, np.deg2rad(command[0]), command[1], np.deg2rad(command[2]))
-        state = hexboi.step_dynamics(state, efforts, dt, wind(state.time))
-        if state.pose.lin[2] < -0.1: state.pose.lin[2] = 0  # basic ground plane
-
-        # Redraw multicopter in scene and move camera accordingly
-        R = motion.rotmat_from_quaternion(state.pose.ang)
-        copter_nodes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_nodes)
-        copter_axes_world = state.pose.lin.reshape(3, 1) + R.dot(copter_axes)
-        copter_vecs_world = [state.pose.lin.reshape(3, 1) + R.dot(vec) for vec in copter_vecs]
-        copter_nodes_plot.mlab_source.set(x=copter_nodes_world[0, :], y=copter_nodes_world[1, :], z=copter_nodes_world[2, :])
-        copter_axes_plot.mlab_source.set(x=copter_axes_world[0, :], y=copter_axes_world[1, :], z=copter_axes_world[2, :])
-        for i, vec_plot in enumerate(copter_vecs_plots):
-            thr = hexboi.thruster_list[i]
-            copter_vecs[i][:, 1] = thr.position + (efforts[hexboi.thruster_keys[i]] / thr.max_effort) * thr.direction
-            vec_plot.mlab_source.set(x=copter_vecs_world[i][0, :], y=copter_vecs_world[i][1, :], z=copter_vecs_world[i][2, :])
-        if camera_follow: mlab.view(focalpoint=state.pose.lin.tolist(), distance=15)
-
-        # Warning if not realtime
-        if (time.time() - start_time) > 1.1*dt:
-            if not time_flag:
-                print "WARNING: Simulation is not always keeping up with realtime."
-                time_flag = True
-
-        # End program or yield sim loop
-        if terminate_flag: break
+        efforts = pilot.control(state)
+        state = model.compute_next_state(state, efforts, dt, wind(state.time))
+        if state.pose.lin[2] < -0.05: state.pose.lin[2] = 0  # basic ground plane
+        viz.update_multicopter(state, efforts, follow)
         yield
 
-# Mayavi has the outermost loop keeping the program alive
+# Start'er up
+pilot.start_pilot_thread(state0)
 simulate()
-mlab.show()
+viz.show()  # blocking
+
+# Be nice
+pilot.stop_pilot_thread()

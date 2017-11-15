@@ -10,8 +10,8 @@ import numpy as np; npl = np.linalg
 from matplotlib import pyplot
 from mpl_toolkits.mplot3d import Axes3D
 
+from multicopter.bois import quadboi as model
 from multicopter import motion
-from multicopter.bois import quadboi
 
 # Time window
 dt = 0.03
@@ -21,16 +21,16 @@ T = np.arange(0, duration, dt)
 # Wacky controller to make things interesting
 def controller(state):
     if state.pose.lin[2] < 2:
-        ui = 0.8 * quadboi.thruster_list[0].max_effort
+        ui = 0.8 * model.thruster_list[0].max_effort
         rando = (1.005 - 0.995)*np.random.sample() + 0.995
     else:
         ui = 0
         rando = 1
-    # ui = np.sqrt((quadboi.mass*9.81/4)/1e-7)  # open-loop hover
+    # ui = np.sqrt((model.mass*9.81/4)/1e-7)  # open-loop hover
     return {"front": ui, "back": ui, "left": rando*ui, "right": ui}
 
 # Scheduled external disturbance wrench
-wind = lambda t: motion.Wrench([0, 0, 0], [0, 0, 0])  # same as None
+wind = lambda t: motion.Wrench([0, 0, 0], [0, 0, 0])  # same effect as None
 
 # Initial condition
 P = [[0, 0, 10]]
@@ -43,12 +43,12 @@ U = []
 # Simulation
 for i, t in enumerate(T[:-1]):
     efforts = controller(states[i])
-    states.append(quadboi.step_dynamics(states[i], efforts, dt, wind(t)))
+    states.append(model.compute_next_state(states[i], efforts, dt, wind(t)))
     P.append(states[i+1].pose.lin)
     Q.append(states[i+1].pose.ang)
     V.append(states[i+1].twist.lin)
     W.append(states[i+1].twist.ang)
-    U.append([efforts[key] for key in quadboi.thruster_keys])
+    U.append([efforts[key] for key in model.thruster_keys])
 
 # Main figures
 fig = pyplot.figure()
@@ -70,10 +70,10 @@ A_ax.grid(True)
 
 # Plot thruster efforts
 U = np.vstack((np.array(U), [0, 0, 0, 0]))
-U_ax.plot(T, U[:, 0], 'r', label=quadboi.thruster_keys[0])
-U_ax.plot(T, U[:, 1], 'g', label=quadboi.thruster_keys[1])
-U_ax.plot(T, U[:, 2], 'b', label=quadboi.thruster_keys[2])
-U_ax.plot(T, U[:, 3], 'm', label=quadboi.thruster_keys[3])
+U_ax.plot(T, U[:, 0], 'r', label=model.thruster_keys[0])
+U_ax.plot(T, U[:, 1], 'g', label=model.thruster_keys[1])
+U_ax.plot(T, U[:, 2], 'b', label=model.thruster_keys[2])
+U_ax.plot(T, U[:, 3], 'm', label=model.thruster_keys[3])
 U_ax.set_xlim([T[0], T[-1]])
 U_ax.set_ylabel("Thruster Effort (RPM)", fontsize=14)
 U_ax.legend(fontsize=12)

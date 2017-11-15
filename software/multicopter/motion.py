@@ -43,6 +43,17 @@ class Twist(object):
         self.ang = np.array(angvel, dtype=np.float64)
 
 
+class Accel(object):
+    """
+    lin: acceleration 3-vector
+    ang: angular acceleration 3-vector
+
+    """
+    def __init__(self, acceleration, angaccel):
+        self.lin = np.array(acceleration, dtype=np.float64)
+        self.ang = np.array(angaccel, dtype=np.float64)
+
+
 class State(object):
     """
     Rigid-body state of a multicopter at a specific time.
@@ -86,32 +97,6 @@ class Wrench(object):
 
     def norm_squared(self):
         return np.sum(np.concatenate((self.lin, self.ang))**2)
-
-
-class Accel(object):
-    """
-    lin: acceleration 3-vector
-    ang: angular acceleration 3-vector
-
-    """
-    def __init__(self, acceleration, angaccel):
-        self.lin = np.array(acceleration, dtype=np.float64)
-        self.ang = np.array(angaccel, dtype=np.float64)
-
-
-class StateDeriv(object):
-    """
-    Derivative of a rigid-body state at a specific time.
-
-    pose_deriv:  Twist object with the derivative of the state's pose
-    twist_deriv: Accel object with the derivative of the state's twist
-    time:        timestamp for this state derivative
-
-    """
-    def __init__(self, pose_deriv, twist_deriv, time):
-        self.pose_deriv = pose_deriv
-        self.twist_deriv = twist_deriv
-        self.time = np.float64(time)
 
 
 def quaternion_inverse(q):
@@ -196,3 +181,11 @@ def unwrap_angle(ang):
 
     """
     return np.mod(ang + np.pi, 2*np.pi) - np.pi
+
+def ori_error(qdes, q):
+    """
+    Does a Lie algebraic orientation error computation given quaternions qdes and q as [x, y, z, w].
+    The returned 3-vector is a rotvec in body-coordinates pointing along the geodesic from q to qdes.
+
+    """
+    return rotvec_from_quaternion(quaternion_multiply(quaternion_inverse(q), qdes))

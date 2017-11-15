@@ -30,8 +30,8 @@ reaction_coeff = 0.25 * prop_dia  # (N*m)/N
 
 # Quadcopter thrusters (sign of reaction_coeff determines handedness)
 quad_thrusters = OrderedDict([("front", Thruster(( r,  0, 0.02), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm)),
-                              ("back",  Thruster((-r,  0, 0.02), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm)),
                               ("left",  Thruster(( 0,  r, 0.02), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm)),
+                              ("back",  Thruster((-r,  0, 0.02), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm)),
                               ("right", Thruster(( 0, -r, 0.02), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm))])
 
 # Multicopter thrusters (sign of reaction_coeff determines handedness)
@@ -46,4 +46,12 @@ hex_thrusters = OrderedDict([("fl", Thruster(npl.matrix_power(R, 1).dot([r, 0, 0
 # Model objects
 quadboi = Model(quad_thrusters, mass, inertia, drag_lin, drag_ang)
 hexboi = Model(hex_thrusters, mass, inertia, drag_lin, drag_ang)
-hexboi_zg = Model(hex_thrusters, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, 0])
+
+# One more with no gravity for fun (needs reversible thrusters)
+hex_thrusters_zg = OrderedDict([("fl", Thruster(npl.matrix_power(R, 1).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm, -max_rpm)),
+                                ("ml", Thruster(npl.matrix_power(R, 3).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm, -max_rpm)),
+                                ("bl", Thruster(npl.matrix_power(R, 5).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm, -max_rpm)),
+                                ("br", Thruster(npl.matrix_power(R, 7).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm, -max_rpm)),
+                                ("mr", Thruster(npl.matrix_power(R, 9).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm, -max_rpm)),
+                                ("fr", Thruster(npl.matrix_power(R, 11).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm, -max_rpm))])
+hexboi_zg = Model(hex_thrusters_zg, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, 0])

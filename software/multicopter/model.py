@@ -5,7 +5,7 @@ import motion
 
 class Model(object):
     """
-    The system model, including the multicopter itself, its thrusters, and maybe some other hardware?
+    The system model, including the multicopter itself, its thrusters, and maybe some other hardware at some point?
 
     thrusters: dictionary of thruster objects keyed by thruster ID
     mass:      scalar total mass
@@ -16,9 +16,10 @@ class Model(object):
 
     The following simplifying assumptions are currently made, but they are all very easy to remove later if needed:
         - Translational drag acts at the center of mass
-        - Translational and angular drag are both approximately linear in twist
+        - Translational and angular drag are both linear in twist
         - Rotation of the Earth is negligible (no global centripetal or Coriolis effects)
         - Gravity field is uniform over the operating region
+        - Negligible buoyancy from small submerged volume and low air density
         - Same assumptions listed in the Thruster class for thrusters
 
     """
@@ -37,7 +38,7 @@ class Model(object):
         if self.gmag != 0: self.gdir = self.gravity / self.gmag
         else: self.gdir = np.zeros(3, dtype=np.float64)
 
-        # Extract thruster information into ordered arrays for consistent and efficient internal use
+        # Extract thruster information into ordered arrays for consistent and efficient use
         self.thruster_keys = self.thrusters.keys()
         self.thruster_list = [self.thrusters[key] for key in self.thruster_keys]
         self.thruster_positions = np.array([thr.position for thr in self.thruster_list])
@@ -52,7 +53,7 @@ class Model(object):
         self.wrench_from_thrusts = lambda thrusts: motion.Wrench(self.B_direcs.dot(thrusts),
                                                                  self.B_levers.dot(thrusts) + self.B_direcs.dot(self.reaction_coeffs * thrusts))
 
-    def step_dynamics(self, state, efforts, dt, wind_wrench=None):
+    def compute_next_state(self, state, efforts, dt, wind_wrench=None):
         """
         Returns a State object containing the multicopter state dt seconds into the future.
         The vector parts of the state are half-Verlet integrated, and the quaternion part is stepped by local linearization.
@@ -62,16 +63,16 @@ class Model(object):
         wind_wrench: Wrench object for the global wind (external disturbance) in world-coordinates, or None
 
         """
-        state_deriv = self.dynamics(state, efforts, wind_wrench)
-        return motion.State(motion.Pose(state.pose.lin + dt*state_deriv.pose_deriv.lin + 0.5*(dt**2)*state.pose.rotate_vector(state_deriv.twist_deriv.lin),
-                                        motion.quaternion_multiply(state.pose.ang, motion.quaternion_from_rotvec(dt*state_deriv.pose_deriv.ang + 0.5*(dt**2)*state_deriv.twist_deriv.ang))),
-                            motion.Twist(state.twist.lin + dt*state_deriv.twist_deriv.lin,
-                                         state.twist.ang + dt*state_deriv.twist_deriv.ang),
+        accel = self.compute_accel(state, efforts, wind_wrench)
+        return motion.State(motion.Pose(state.pose.lin + state.pose.rotate_vector(dt*state.twist.lin + 0.5*(dt**2)*accel.lin),
+                                        motion.quaternion_multiply(state.pose.ang, motion.quaternion_from_rotvec(dt*state.twist.ang + 0.5*(dt**2)*accel.ang))),
+                            motion.Twist(state.twist.lin + dt*accel.lin,
+                                         state.twist.ang + dt*accel.ang),
                             state.time + dt)
 
-    def dynamics(self, state, efforts, wind_wrench=None):
+    def compute_accel(self, state, efforts, wind_wrench=None):
         """
-        Returns the state derivative as a StateDeriv object.
+        Returns the linear and angular accelerations (in body-coordinates) as an Accel object.
         
         state:       State object with the current multicopter state
         efforts:     dictionary of effort commands to each thruster keyed by thruster ID
@@ -96,15 +97,6 @@ class Model(object):
             wind_force = state.pose.rotate_vector(wind_wrench.lin, reverse=True)
             wind_torque = state.pose.rotate_vector(wind_wrench.ang, reverse=True)
 
-        # Pose time derivative
-        pose_lin_deriv = state.pose.rotate_vector(state.twist.lin)
-        pose_ang_deriv = np.copy(state.twist.ang)  # as a member of the Lie algebra
-
-        # Twist time derivative
-        twist_lin_deriv = self.invmass * (thr_wrench.lin + drag_force + grav_force + wind_force) - np.cross(state.twist.ang, state.twist.lin)
-        twist_ang_deriv = self.invinertia.dot(thr_wrench.ang + drag_torque + wind_torque - np.cross(state.twist.ang, self.inertia.dot(state.twist.ang)))
-
-        # Return a StateDeriv object
-        return motion.StateDeriv(motion.Twist(pose_lin_deriv, pose_ang_deriv),
-                                 motion.Accel(twist_lin_deriv, twist_ang_deriv),
-                                 state.time)
+        # Return twist time derivative as Accel object
+        return motion.Accel(self.invmass * (thr_wrench.lin + drag_force + grav_force + wind_force) - np.cross(state.twist.ang, state.twist.lin),
+                            self.invinertia.dot(thr_wrench.ang + drag_torque + wind_torque - np.cross(state.twist.ang, self.inertia.dot(state.twist.ang))))
