@@ -15,53 +15,94 @@ from multicopter.viz import Viz
 from multicopter import motion
 
 # Graphics / environment config
-building_spacing = 3
-building_size = (3, 3, 4)
+building_spacing = 3  # m
+building_size = (3, 3, 4)  # m
 building_layout = np.ones((10, 10))
 viz = Viz(model, building_layout, building_size, building_spacing)
 
-# User button press callbacks
-def bcb_A(val):  # toggle camera following
-    global follow
+# User button-press callbacks
+####
+# Toggle camera following
+def bcb_A(val):
+    global cam_follow
     if val:
-        if follow: follow = 0
-        else: follow = 15
-def bcb_B(val):  # reset state and command
+        if cam_follow: cam_follow = False
+        else: cam_follow = True
+
+# Reset state and command
+def bcb_B(val):
     global state
     if val:
         state = state0.copy()
         pilot.reset(state0)
 
+# Zoom-out camera
+def bcb_L(val):
+    global cam_dist_rate
+    cam_dist_rate = val*20  # m/s
+
+# Zoom-in camera
+def bcb_R(val):
+    global cam_dist_rate
+    cam_dist_rate = -val*20  # m/s
+
+# Change camera elevation
+def bcb_DV(val):
+    global cam_elev_rate
+    cam_elev_rate = val*45  # deg/s
+
+# Change camera azimuth
+def bcb_DH(val):
+    global cam_azim_rate
+    cam_azim_rate = val*45  # deg/s
+####
+
 # User piloting config
-kp = [0, 0.5, 0.5, 0.5]  # [world_up, roll, pitch, yaw]
-kd = [10, 0.1, 0.1, 0.1]
-pilot = Pilot(model, kp, kd, button_callbacks={"A": bcb_A, "B": bcb_B})
+kp = [0.0, 0.5, 0.5, 0.5]  # gains [world_up, roll, pitch, yaw]
+kd = [7.5, 0.1, 0.1, 0.1]
+pilot = Pilot(model, kp, kd, button_callbacks={"A": bcb_A, "B": bcb_B, "L": bcb_L, "R": bcb_R, "DV": bcb_DV, "DH": bcb_DH})
 
 # Scheduled external disturbance wrench
 wind = lambda t: None
 
-# Initial condition
-state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]),
-                      motion.Twist([0, 0, 0], [0, 0, 0]),
-                      0.0)
-state = state0.copy()
-follow = 15  # m
-
-# Simulation time and timestep
+# Initial multicopter condition
 t = time.time()
-dt = 0.01
+state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]), motion.Twist([0, 0, 0], [0, 0, 0]), t)  # m, s, and rad
+state = state0.copy()
+
+# Initial camera condition
+cam_state = {"focalpoint": state0.pose.lin.tolist(), "azimuth": 180, "elevation": 70, "distance": 15}  # m and deg
+cam_azim_rate = 0
+cam_elev_rate = 0
+cam_dist_rate = 0
+cam_follow = True
 
 # Simulation loop function
+dt = 0.01  # s
 @viz.animate(delay=50)  # ms (20 FPS is the best Mayavi can do)
 def simulate():
-    global state, t
+    global state, cam_state, t
     while True:
+
+        # Between each scene render, simulate up to real-time
         while t < time.time():
+
+            # Update user input commands and compute efforts needed to achieve those commands
             efforts = pilot.control(state)
+
+            # Step simulation forward given the environment and multicopter thruster efforts
             state = model.compute_next_state(state, efforts, dt, wind(state.time))
             if state.pose.lin[2] < -0.05: state.pose.lin[2] = 0  # basic ground plane
             t += dt
-        viz.update_multicopter(state, efforts, follow)
+
+            # Update camera state according to user input
+            if cam_follow: cam_state["focalpoint"] = state.pose.lin.tolist()
+            cam_state["azimuth"] += dt*cam_azim_rate
+            cam_state["elevation"] += dt*cam_elev_rate
+            cam_state["distance"] = np.clip(cam_state["distance"] + dt*cam_dist_rate, 5, np.inf)
+
+        # Re-render changed parts of the scene at this real-time instant
+        viz.update_multicopter(state, efforts, cam_state)
         yield
 
 # Start'er up

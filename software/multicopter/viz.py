@@ -83,20 +83,17 @@ class Viz(object):
         self.copter_vecs = [np.vstack((thr.position, thr.position+1e-5*thr.direction)).T for thr in self.model.thruster_list]
         self.copter_vecs_plots = [mlab.plot3d(vec[0, :], vec[1, :], vec[2, :], color=(1, 1, 1)) for vec in self.copter_vecs]
 
-        # If using self-created figure, apply this initial viewing angle (must be done after initial generations)
-        if fig is None: mlab.view(azimuth=180)
-
         # Aliases for Mayavi animate decorator and show function
         self.animate = mlab.animate
         self.show = mlab.show
 
-    def update_multicopter(self, state, efforts, follow=None):
+    def update_multicopter(self, state, efforts, view_kwargs={}):
         """
         Redraws the multicopter in fig according to the given state and efforts.
 
-        state:   State object for the current multicopter state
-        efforts: dictionary keyed by thruster ID for the current multicopter efforts
-        follow:  distance the camera will keep from the multicopter while following it (None for no following)
+        state:        State object for the current multicopter state
+        efforts:      dictionary keyed by thruster ID for the current multicopter efforts
+        view_kwargs:  dictionary of keyword arguments that will be passed to Mayavi's mlab.view function
 
         """
         # Transform body geometry to world coordinates (using rotation matrix is faster for multiple points)
@@ -114,4 +111,4 @@ class Viz(object):
             vec_plot.mlab_source.set(x=copter_vecs_world[i][0, :], y=copter_vecs_world[i][1, :], z=copter_vecs_world[i][2, :])
 
         # Set camera view
-        if follow: mlab.view(focalpoint=state.pose.lin.tolist(), distance=follow)
+        if view_kwargs: mlab.view(**view_kwargs)
