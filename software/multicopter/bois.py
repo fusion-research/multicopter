@@ -55,3 +55,10 @@ hex_thrusters_zg = OrderedDict([("fl", Thruster(npl.matrix_power(R, 1).dot([r, 0
                                 ("mr", Thruster(npl.matrix_power(R, 9).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, reaction_coeff, max_rpm, -max_rpm)),
                                 ("fr", Thruster(npl.matrix_power(R, 11).dot([r, 0, 0.02]), thrust_from_effort, effort_from_thrust, -reaction_coeff, max_rpm, -max_rpm))])
 hexboi_zg = Model(hex_thrusters_zg, mass, inertia, drag_lin, drag_ang, gravity=[0, 0, 0])
+
+# One more with randomly distributed thrusters for fun
+rando_thrusters = OrderedDict()
+for i in xrange(10):
+    rando_thrusters[str(i)] = Thruster(2*(np.random.sample(3)-0.5), thrust_from_effort, effort_from_thrust,
+                                       reaction_coeff, max_rpm, -max_rpm, np.random.sample(3)-0.5)
+randoboi = Model(rando_thrusters, mass, inertia, drag_lin, drag_ang)
