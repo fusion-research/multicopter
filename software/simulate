@@ -10,6 +10,7 @@ import numpy as np; npl = np.linalg
 import time
 
 from multicopter.pilot import Pilot
+from multicopter.copilot import CoPilot
 from multicopter.bois import hexboi as model
 from multicopter.viz import Viz
 from multicopter import motion
@@ -33,8 +34,8 @@ def bcb_A(val):
 def bcb_B(val):
     global state
     if val:
-        state = state0.copy()
-        pilot.reset(state0)
+        state = state0
+        copilot.reset(state0)
 
 # Zoom-out camera
 def bcb_L(val):
@@ -57,18 +58,19 @@ def bcb_DH(val):
     cam_azim_rate = val*45  # deg/s
 ####
 
-# User piloting config
-kp = [0.0, 0.5, 0.5, 0.5]  # gains [world_up, roll, pitch, yaw]
-kd = [7.5, 0.1, 0.1, 0.1]
-pilot = Pilot(model, kp, kd, button_callbacks={"A": bcb_A, "B": bcb_B, "L": bcb_L, "R": bcb_R, "DV": bcb_DV, "DH": bcb_DH})
-
-# Scheduled external disturbance wrench
-wind = lambda t: None
-
 # Initial multicopter condition
 t = time.time()
 state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]), motion.Twist([0, 0, 0], [0, 0, 0]), t)  # m, s, and rad
-state = state0.copy()
+state = state0  # warning, not a copy
+
+# User flight control config
+kp = [0.0, 0.5, 0.5, 0.5]  # gains [world-up, roll, pitch, yaw]
+kd = [7.5, 0.1, 0.1, 0.1]
+pilot = Pilot(button_callbacks={"A": bcb_A, "B": bcb_B, "L": bcb_L, "R": bcb_R, "DV": bcb_DV, "DH": bcb_DH})
+copilot = CoPilot(model, kp, kd, state0)
+
+# Scheduled external disturbance wrench
+wind = lambda t: None
 
 # Initial camera condition
 cam_state = {"focalpoint": state0.pose.lin.tolist(), "azimuth": 180, "elevation": 70, "distance": 15}  # m and deg
@@ -88,7 +90,8 @@ def simulate():
         while t < time.time():
 
             # Update user input commands and compute efforts needed to achieve those commands
-            efforts = pilot.control(state)
+            command = pilot.get_command()
+            efforts = copilot.control(state, command)
 
             # Step simulation forward given the environment and multicopter thruster efforts
             state = model.compute_next_state(state, efforts, dt, wind(state.time))
@@ -106,7 +109,7 @@ def simulate():
         yield
 
 # Start'er up
-pilot.start_pilot_thread(state0)
+pilot.start_pilot_thread()
 simulate()
 viz.show()  # blocking
 

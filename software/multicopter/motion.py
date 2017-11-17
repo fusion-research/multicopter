@@ -73,10 +73,27 @@ class State(object):
         self.twist = twist
         self.time = np.float64(time)
 
-    def copy(self):
-        return State(Pose(np.copy(self.pose.lin), np.copy(self.pose.ang)),
-                     Twist(np.copy(self.twist.lin), np.copy(self.twist.ang)),
-                     np.copy(self.time))
+
+class Command(object):
+    """
+    Controllable freedoms that would be commanded by a human pilot.
+    High-level flags (start, cancel, and kill) are also stored.
+
+    roll:        roll angle in radians
+    pitch:       pitch angle in radians
+    yaw_rate:    derivative of yaw angle in radians with respect to time
+    ascent_rate: speed along the world-up direction (opposing gravity)
+
+    """
+    def __init__(self, roll, pitch, yaw_rate, ascent_rate):
+        self.roll = np.float64(roll)
+        self.pitch = np.float64(pitch)
+        self.yaw_rate = np.float64(yaw_rate)
+        self.ascent_rate = np.float64(ascent_rate)
+
+        self.start = 0
+        self.cancel = False
+        self.kill = False
 
 
 class Wrench(object):
