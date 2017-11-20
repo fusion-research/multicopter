@@ -21,6 +21,7 @@ class Pilot(object):
     User interface for remote-controlling a multicopter.
     Call start_pilot_thread to begin filling an internal buffer with user input.
     Call get_command to execute / clear the buffer and get the current relevant Command object.
+    Change the mission_code attribute to an integer that will be sent as command.start on activation.
     Call stop_pilot_thread when done!
 
     max_roll:         magnitude of the largest acceptable roll command (in degrees)
@@ -30,7 +31,7 @@ class Pilot(object):
     stick_deadband:   fraction of analog joystick travel that should be treated as zero
     trigger_deadband: fraction of analog trigger travel that should be treated as zero
     max_buffer_size:  maximum number of user commands that should be stored before dropping old ones
-    button_callbacks: dictionary of callback functions keyed by button names (A, B, X, Y, L, R, SL, SR, DV, DH)
+    button_callbacks: dictionary of callback functions keyed by button names (A, B, X, Y, L, R, SL, SR, DV, DH, K)
 
     """
     def __init__(self, max_roll=65, max_pitch=65, max_yaw_rate=180, max_ascent_rate=5,
@@ -61,7 +62,7 @@ class Pilot(object):
         # Digital button code names
         self.button_codes = {"BTN_SOUTH": "A", "BTN_EAST": "B", "BTN_NORTH": "X", "BTN_WEST": "Y",
                              "BTN_TL": "L", "BTN_TR": "R", "BTN_SELECT": "SL", "BTN_START": "SR",
-                             "ABS_HAT0Y": "DV", "ABS_HAT0X": "DH"}
+                             "ABS_HAT0Y": "DV", "ABS_HAT0X": "DH", "BTN_MODE": "K"}
 
         # Analog input characteristics
         self.max_stick = 32767
@@ -76,12 +77,15 @@ class Pilot(object):
         self.buffer = deque([])
         self.buffer_size_flag = False
 
+        # Change this integer attribute to affect what command.start will be when activated
+        self.mission_code = 0
+
     def get_command(self):
         """
         Executes / clears the input buffer and returns the current relevant Command object.
 
         """
-        if self.pilot_thread is None: raise AssertionError("FATAL: Cannot get_command until you start_pilot_thread!")
+        if self.pilot_thread is None: raise AssertionError("FATAL: Cannot get_command without active pilot thread!")
         while self.buffer:
             event = self.buffer.pop()
             if event.code == "ABS_Y": self.command.ascent_rate = -self._stick_frac(event.state) * self.max_ascent_rate
@@ -91,9 +95,9 @@ class Pilot(object):
             elif event.code == "ABS_Z": self.command.yaw_rate = self._trigger_frac(event.state) * self.max_yaw_rate
             elif event.code == "ABS_RZ": self.command.yaw_rate = -self._trigger_frac(event.state) * self.max_yaw_rate
             elif event.code in self.button_codes:
-                if event.code == "BTN_NORTH": self.command.cancel = bool(event.state)
-                elif event.code == "BTN_WEST": self.command.start = int(event.state)
-                elif event.code == "BTN_START": self.command.kill = bool(event.state)
+                if event.code == "BTN_WEST": self.command.start = int(event.state * self.mission_code)
+                elif event.code == "BTN_NORTH": self.command.cancel = bool(event.state)
+                elif event.code == "BTN_MODE": self.command.kill = bool(event.state)
                 self.button_callbacks.get(self.button_codes[event.code], lambda val: None)(event.state)
         return self.command
 
@@ -108,7 +112,7 @@ class Pilot(object):
             print "Cannot start another."
             print "----------"
             return
-        self.command = Command(0, 0, 0, 0)
+        self.command = Command()
         self.stay_alive = True
         if self.input_device == "Microsoft X-Box One pad (Firmware 2015)":
             self.pilot_thread = Thread(target=self._listen_xbox)
@@ -126,7 +130,6 @@ class Pilot(object):
         if self.pilot_thread is not None:
             print "Pilot thread terminating on next input!"
             self.pilot_thread.join()  # stay secure
-            print "Pilot thread terminated!"
             self.pilot_thread = None
         while self.buffer:
             self.buffer.pop()
@@ -145,8 +148,9 @@ class Pilot(object):
                         print "Dropping old commands."
                         print "----------"
                     self.buffer.pop()
-        except IOError:
-            raise IOError("PROBABLY FATAL: User input device disconnected.\nTerminating Pilot thread.")  # better error message
+        finally:
+            print "Pilot thread terminated!"
+            self.pilot_thread = None
 
     def _stick_frac(self, val):
         if abs(val) > self.min_stick:

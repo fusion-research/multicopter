@@ -3,17 +3,29 @@
 Script for ~iNtErAcTiVe~ realtime multicopter simulation.
 See pilot.py for X-Box gamepad installation instructions.
 See viz.py for Mayavi graphics installation instructions.
+See radio.py for Twisted and RF modem installation instructions.
 
 """
 from __future__ import division
 import numpy as np; npl = np.linalg
 import time
 
+from multicopter.comms.radio import Radio, reactor
 from multicopter.pilot import Pilot
 from multicopter.copilot import CoPilot
+
 from multicopter.bois import hexboi as model
 from multicopter.viz import Viz
 from multicopter import motion
+
+# Radio comms config
+use_radios = False
+print "Using real radios: {}".format(use_radios)
+if use_radios:
+    transmitter = Radio(port="/dev/ttyUSB0")
+    receiver = Radio(port="/dev/ttyUSB1")
+    def rcv_cb(cmd):
+        return None
 
 # Graphics / environment config
 building_spacing = 3  # m
@@ -30,7 +42,7 @@ def bcb_A(val):
         if cam_follow: cam_follow = False
         else: cam_follow = True
 
-# Reset state and command
+# Reset state and copilot internal state
 def bcb_B(val):
     global state
     if val:
@@ -46,6 +58,17 @@ def bcb_L(val):
 def bcb_R(val):
     global cam_dist_rate
     cam_dist_rate = -val*20  # m/s
+
+# Decrement mission code
+def bcb_SL(val):
+    pilot.mission_code -= int(val)
+    if pilot.mission_code < 0: pilot.mission_code = 0
+    if val: print "Prepared for mission {}.".format(pilot.mission_code)
+
+# Increment mission code
+def bcb_SR(val):
+    pilot.mission_code += int(val)
+    if val: print "Prepared for mission {}.".format(pilot.mission_code)
 
 # Change camera elevation
 def bcb_DV(val):
@@ -64,9 +87,10 @@ state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]), motion.Twist([0, 0, 
 state = state0  # warning, not a copy
 
 # User flight control config
-kp = [0.0, 0.5, 0.5, 0.5]  # gains [world-up, roll, pitch, yaw]
-kd = [7.5, 0.1, 0.1, 0.1]
-pilot = Pilot(button_callbacks={"A": bcb_A, "B": bcb_B, "L": bcb_L, "R": bcb_R, "DV": bcb_DV, "DH": bcb_DH})
+kp = [00, 2.0, 2.0, 2.0]  # gains [world-up, roll, pitch, yaw]
+kd = [20, 0.5, 0.5, 0.5]
+pilot = Pilot(button_callbacks={"A": bcb_A, "B": bcb_B, "L": bcb_L, "R": bcb_R,
+                                "SL": bcb_SL, "SR": bcb_SR, "DV": bcb_DV, "DH": bcb_DH})
 copilot = CoPilot(model, kp, kd, state0)
 
 # Scheduled external disturbance wrench
@@ -89,9 +113,22 @@ def simulate():
         # Between each scene render, simulate up to real-time
         while t < time.time():
 
+            # Work on receiver coroutine must be handled like this to give Mayavi the main loop
+            if use_radios: reactor.iterate()
+
             # Update user input commands and compute efforts needed to achieve those commands
-            command = pilot.get_command()
-            efforts = copilot.control(state, command)
+            command_tx = pilot.get_command()
+            if use_radios:
+                transmitter.transmit_command(command_tx)
+                command_rcv = receiver.command
+            else:
+                command_rcv = command_tx
+            efforts = copilot.control(state, command_rcv)
+
+            # Demonstrate flags are working
+            if command_rcv.start != 0: print "Mission {} command received!".format(command_rcv.start)
+            if command_rcv.cancel is True: print "Cancel command received!"
+            if command_rcv.kill is True: print "Kill command received!"
 
             # Step simulation forward given the environment and multicopter thruster efforts
             state = model.compute_next_state(state, efforts, dt, wind(state.time))
@@ -110,8 +147,10 @@ def simulate():
 
 # Start'er up
 pilot.start_pilot_thread()
+if use_radios: receiver.start_receiver_coroutine(rcv_cb)
 simulate()
 viz.show()  # blocking
 
 # Be nice
 pilot.stop_pilot_thread()
+if use_radios: receiver.stop_receiver_coroutine()

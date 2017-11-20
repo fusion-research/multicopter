@@ -83,17 +83,19 @@ class Command(object):
     pitch:       pitch angle in radians
     yaw_rate:    derivative of yaw angle in radians with respect to time
     ascent_rate: speed along the world-up direction (opposing gravity)
+    start:       integer ID for mission to start
+    cancel:      bool flag for switching back to RC / canceling a mission
+    kill:        bool flag for cutting all motors
 
     """
-    def __init__(self, roll, pitch, yaw_rate, ascent_rate):
+    def __init__(self, roll=0.0, pitch=0.0, yaw_rate=0.0, ascent_rate=0.0, start=0, cancel=False, kill=False):
         self.roll = np.float64(roll)
         self.pitch = np.float64(pitch)
         self.yaw_rate = np.float64(yaw_rate)
         self.ascent_rate = np.float64(ascent_rate)
-
-        self.start = 0
-        self.cancel = False
-        self.kill = False
+        self.start = int(start)
+        self.cancel = bool(cancel)
+        self.kill = bool(kill)
 
 
 class Wrench(object):
