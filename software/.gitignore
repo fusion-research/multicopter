@@ -1,4 +1,5 @@
-*.pyc
 *~
-
+*.pyc
+*.so
+multicopter/autopilot/model.hpp
 test

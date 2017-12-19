@@ -1,5 +1,6 @@
 """
 A quadcopter model and a hexcopter model are configured here for easy access and reuse by other scripts.
+If this script is run as main, then a C++ header file for the hexcopter model will be generated into the ./autopilot/ folder.
 
 """
 from __future__ import division
@@ -62,3 +63,7 @@ for i in xrange(10):
     rando_thrusters[str(i)] = Thruster(2*(np.random.sample(3)-0.5), thrust_from_effort, effort_from_thrust,
                                        reaction_coeff, max_rpm, -max_rpm, np.random.sample(3)-0.5)
 randoboi = Model(rando_thrusters, mass, inertia, drag_lin, drag_ang)
+
+# Generate C++ header for use by autopilot backend
+if __name__ == "__main__":
+    hexboi.make_header(directory="autopilot")  # autopilot expects a hexcopter
