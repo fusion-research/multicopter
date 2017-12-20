@@ -73,6 +73,18 @@ class State(object):
         self.twist = twist
         self.time = np.float64(time)
 
+    def boxplus(self, vec):
+        """
+        Returns a State object that is this state perturbed by the
+        given 12-dimensional tangent vector.
+
+        """
+        return State(Pose(self.pose.lin + vec[:3],
+                          quaternion_multiply(self.pose.ang, quaternion_from_rotvec(vec[3:6]))),
+                     Twist(self.twist.lin + vec[6:9],
+                           self.twist.ang + vec[9:]),
+                     self.time)
+
 
 class Command(object):
     """

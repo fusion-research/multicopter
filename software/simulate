@@ -86,6 +86,12 @@ t = time.time()
 state0 = motion.State(motion.Pose([0, 0, 5], [0, 0, 0, 1]), motion.Twist([0, 0, 0], [0, 0, 0]), t)  # m, s, and rad
 state = state0  # warning, not a copy
 
+# State estimation covariance
+state_est_cov = np.diag([1.0e-4, 1.0e-4, 1.0e-4,
+                         4.0e-4, 4.0e-4, 4.0e-4,
+                         1.6e-5, 1.6e-5, 1.6e-5,
+                         2.0e-6, 2.0e-6, 2.0e-6])
+
 # User flight control config
 kp = [00, 2.0, 2.0, 2.0]  # gains [world-up, roll, pitch, yaw]
 kd = [20, 0.5, 0.5, 0.5]
@@ -123,7 +129,8 @@ def simulate():
                 command_rcv = receiver.command
             else:
                 command_rcv = command_tx
-            efforts = copilot.control(state, command_rcv)
+            state_est = state.boxplus(np.random.multivariate_normal(np.zeros(12), state_est_cov))
+            efforts = copilot.control(state_est, command_rcv)
 
             # Demonstrate flags are working
             if command_rcv.start != 0: print "Mission {} command received!".format(command_rcv.start)
