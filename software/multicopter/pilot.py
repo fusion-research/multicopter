@@ -46,7 +46,8 @@ class Pilot(object):
         self.button_callbacks = button_callbacks
 
         # Valid input device names in priority order
-        self.valid_device_names = ["Microsoft X-Box One pad (Firmware 2015)"]
+        self.valid_device_names = ["Microsoft X-Box One pad (Firmware 2015)",
+                                   "PowerA Xbox One wired controller"]
 
         # Set valid input device
         self.input_device = None
@@ -114,7 +115,8 @@ class Pilot(object):
             return
         self.command = Command()
         self.stay_alive = True
-        if self.input_device == "Microsoft X-Box One pad (Firmware 2015)":
+        if self.input_device in ["Microsoft X-Box One pad (Firmware 2015)",
+                                 "PowerA Xbox One wired controller"]:
             self.pilot_thread = Thread(target=self._listen_xbox)
         else:
             raise IOError("FATAL: No listener function has been implemented for device {}.".format(self.input_device))
